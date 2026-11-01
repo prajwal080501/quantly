@@ -690,3 +690,42 @@ test('the day story finds the legs a day moved in, and Review sends warm-up bars
   assert.ok(r.story && r.story.legs.every((l) => l.to > l.from));
   assert.equal(warmBars([], day).length, 0);
 });
+
+test('a combination can carry its own profit ladder, trail and break-even: cleaned on save, carried on its signals and used by the simulated trade', async () => {
+  const { normalizeExits, comboExits, comboInput } = await import('../src/combos/combos.js');
+  const { simulateTrade } = await import('../src/study/simulate.js');
+  assert.equal(normalizeExits(undefined), undefined);
+  assert.equal(normalizeExits({}), undefined);
+  assert.deepEqual(normalizeExits({ steps: [{ at: 3000, keep: 2500 }, { at: 3500, keep: 3000 }], trail: { points: 30 }, breakEven: 0 }), { steps: [{ at: 3000, keep: 2500 }, { at: 3500, keep: 3000 }], trail: { points: 30, start: 30 }, breakEven: 0 });
+  assert.deepEqual(normalizeExits({ steps: [], trail: null }), { steps: [], trail: null }, 'none of a part is a choice of its own');
+  assert.equal(normalizeExits({ steps: [{ at: 500, keep: 800 }] }), undefined, 'a rung that locks more than it needs is dropped');
+  assert.equal(normalizeExits({ steps: [{ at: 3000, keep: 2500 }, { at: 2000, keep: 1500 }] }), undefined, 'rungs must rise');
+  assert.equal(normalizeExits({ trail: { points: 2 }, breakEven: 3 }), undefined, 'trail and break-even under 5 points are dropped');
+  const combo = normalizeCombo({ name: 'Own exits', conds: ['rsiAbove50'], exits: { steps: [], trail: { points: 30, start: 30 }, breakEven: 20 } });
+  assert.deepEqual(combo.exits, { steps: [], trail: { points: 30, start: 30 }, breakEven: 20 });
+  assert.deepEqual(comboExits(combo), combo.exits);
+  assert.equal(normalizeCombo({ name: 'Plain', conds: ['rsiAbove50'] }).exits, undefined);
+  assert.ok(comboInput.safeParse([{ name: 'x', conds: ['rsiAbove50'], exits: { steps: [{ at: 3000, keep: 2500 }], trail: null, breakEven: 20 } }]).success);
+
+  const bars = tape(0.4, 8);
+  const chart = buildChart(bars, {});
+  const sigs = comboSignals(chart, combo);
+  assert.ok(sigs.length > 5 && sigs.every((x) => x.exits && x.exits.breakEven === 20));
+  assert.ok(comboSignals(chart, normalizeCombo({ name: 'Plain', conds: ['rsiAbove50'] })).every((x) => !('exits' in x)));
+
+  // the simulated trade uses the signal's own exits in place of the shared ones
+  const c1 = minutes(8);
+  const byTime = new Map(c1.map((b, i) => [b.time, i]));
+  const params = { ...PARAMS, lossLimit: 3000, maxLots: 2, steps: [{ at: 40, keep: 20 }] };
+  let differ = 0;
+  let same = 0;
+  for (const b of c1.filter((_, i) => i % 40 === 5).slice(0, 60)) {
+    const base = { side: 'CE', time: b.time, stop: b.open - 40 };
+    const shared = simulateTrade({ c1, byTime, signal: base, params });
+    const own = simulateTrade({ c1, byTime, signal: { ...base, exits: { steps: [] } }, params });
+    const none = simulateTrade({ c1, byTime, signal: { ...base, exits: undefined }, params });
+    assert.equal(none?.net, shared?.net, 'no own exits: the shared ones');
+    if (shared && own && !shared.skipped && !own.skipped) (shared.net !== own.net ? (differ += 1) : (same += 1));
+  }
+  assert.ok(differ > 0, `a ladder of its own changes some trades (${differ} differ, ${same} same)`);
+});

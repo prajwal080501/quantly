@@ -66,3 +66,24 @@ describe('the pick list', () => {
     expect(indicatorsText([])).toBe('');
   });
 });
+
+import { roomSteps, exitsText, toPayload as toPayloadX, blankCombo as blankX } from './combos.js';
+import { describe as d2, it as i2, expect as e2 } from 'vitest';
+
+d2('own exits', () => {
+  i2('roomSteps builds 8 rising rows that keep less than the gain', () => {
+    const r = roomSteps(1000, 500);
+    e2(r).toHaveLength(8);
+    e2(r[0]).toEqual({ at: 1000, keep: 500 });
+    e2(r.every((x) => x.keep > 0 && x.keep < x.at)).toBe(true);
+  });
+  i2('exitsText says what is own and is null when shared', () => {
+    e2(exitsText({})).toBeNull();
+    e2(exitsText({ exits: { steps: [], trail: { points: 20 }, breakEven: 0 } })).toBe('no profit ladder, trail 20 points, no break-even');
+  });
+  i2('toPayload passes exits only when present', () => {
+    const c = { ...blankX(), name: 'a', conds: ['x', 'y'] };
+    e2(toPayloadX(c).exits).toBeUndefined();
+    e2(toPayloadX({ ...c, exits: { breakEven: 20 } }).exits).toEqual({ breakEven: 20 });
+  });
+});
