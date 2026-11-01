@@ -118,7 +118,7 @@ const entryKey = (s) => `${s.time}|${s.side}`;
 function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1, byTime, params, stopRule, exitMin }) {
   const base = combos.find((c) => c.id === trial.id);
   if (!base || missingData(base, chart.have).length) return { id: trial.id, missing: true };
-  const all = (conds) => ({ id: 'trial', name: base.name, conds, need: conds.length, window: base.window, stopMode: base.stopMode, stopAtr: base.stopAtr, stopPoints: base.stopPoints });
+  const all = (conds) => ({ id: 'trial', name: base.name, conds, need: conds.length, window: base.window, stopMode: base.stopMode, stopAtr: base.stopAtr, stopPoints: base.stopPoints, exits: base.exits });
   const entriesOf = (combo) => comboSignals(chart, combo, { label: 'trial' }).filter((x) => dayOf(x.time - 300) === day);
   const baseSigs = entriesOf(all(base.conds));
   const net = new Map(baseSigs.map((x) => [entryKey(x), lockNet(x)]));
@@ -146,21 +146,22 @@ function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1,
   }
   // The same entries (with the picks added) traded again with other stops, profit ladders, trailing stops and break-even: only one thing changes per row
   const picked = [...base.conds, ...add];
-  const tradedWith = (sigs, rule, set) => {
+  // `own`: keep the combination's own exits (as it trades live); a row that tries other exits sets them aside
+  const tradedWith = (sigs, rule, set, own = false) => {
     const nets = sigs
       .map((x) => {
         const at = byTime.get(x.time);
         if (at == null || istParts(new Date(x.time * 1000)).minutes >= exitMin) return null;
         const { stop, wide } = fitStop(x, c1[at].open, rule);
         if (wide) return null;
-        const t = simulateTrade({ c1, byTime, signal: { ...x, stop }, params: { ...params, ...set, target: 0 } });
+        const t = simulateTrade({ c1, byTime, signal: own ? { ...x, stop } : { ...x, stop, exits: undefined }, params: { ...params, ...set, target: 0 } });
         return t && !t.skipped ? t.net : null;
       })
       .filter((n) => n != null);
     return { trades: nets.length, wins: nets.filter((n) => n > 0).length, net: sum(nets), worst: nets.length ? round2(Math.min(...nets)) : 0 };
   };
   const pickedSigs = entriesOf(all(picked));
-  const now = tradedWith(pickedSigs, stopRule, {});
+  const now = tradedWith(pickedSigs, stopRule, {}, true);
   const tries = {
     of: add.length ? 'picks' : 'combination',
     now,
@@ -346,7 +347,7 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
       signals.push({ ...base, skipped: 'price' });
       continue;
     }
-    const target = simulateTrade({ c1, byTime, signal, params: { ...params, target: TARGET_PER_LOT } });
+    const target = simulateTrade({ c1, byTime, signal: { ...signal, exits: undefined }, params: { ...params, target: TARGET_PER_LOT } });
     signals.push({ ...base, strike: lock.strike, expiry: lock.expiry, premium: lock.entryPremium, lock: outcome(lock), target: outcome(target) });
   }
   return {

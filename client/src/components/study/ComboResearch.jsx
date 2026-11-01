@@ -44,7 +44,7 @@ export function ComboResearch({ r, own = false, onApplied }) {
     if (!window.confirm(`Save this for new trades?\n\n${applyText(a)}`)) return;
     setBusy(true);
     try {
-      const combos = a.comboStop ? (await api('/options')).settings.combos : [];
+      const combos = a.comboStop || a.comboExits ? (await api('/options')).settings.combos : [];
       for (const q of applyRequests(a, { combos })) await api(q.path, { method: 'PUT', body: q.body });
       toast.success('Saved. New trades use it.');
       onApplied?.();
@@ -81,7 +81,7 @@ export function ComboResearch({ r, own = false, onApplied }) {
             <div className="text-[11px] font-semibold">Best profit settings</div>
             <ul className="divide-y divide-line">
               {r.exits.map((x) => (
-                <Row key={x.key} x={x} split={r.split} busy={busy} onApply={apply} canApply />
+                <Row key={x.key} x={x} split={r.split} busy={busy} onApply={apply} canApply={own || !x.apply?.comboExits} />
               ))}
             </ul>
           </div>
@@ -103,7 +103,7 @@ export function ComboResearch({ r, own = false, onApplied }) {
             )}
           </div>
         )}
-        <p className="text-[11px] leading-snug text-muted">The stop is the one most worth getting right, but about 40 settings were tried on one stretch of days: trust a row that earns on both the older and the newer days. Profit settings (ladder, trail, break-even) are shared by every entry; the stop can be set per combination.</p>
+        <p className="text-[11px] leading-snug text-muted">The stop is the one most worth getting right, but about 40 settings were tried on one stretch of days: trust a row that earns on both the older and the newer days. Profit settings (ladder, trail, break-even) can be set for one combination, or shared by every entry from Account &gt; Limits and Entries; a combination with its own uses those.</p>
       </div>
     </details>
   );

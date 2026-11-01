@@ -37,7 +37,8 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { prices = null, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
+  // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades
+  const { prices = null, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = signal.exits ? { ...params, ...signal.exits } : params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   if (istParts(new Date(signal.time * 1000)).minutes >= exitMin) return null; // no new trade at or after the time you close

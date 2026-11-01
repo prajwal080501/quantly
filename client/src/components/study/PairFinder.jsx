@@ -66,6 +66,16 @@ export function PairFinderControl({ on, setOn, first, setFirst, kind, finder, se
   );
 }
 
+/** The own stop and exits the research found for a found combination (the mix first), or null when it found none. */
+function best(f) {
+  const mix = f.research?.mix?.apply;
+  const stop = mix?.comboStop ?? bestOf(f.research).stop?.apply?.comboStop ?? null;
+  const ex = mix?.comboExits ?? bestOf(f.research).exit?.apply?.comboExits ?? null;
+  if (!stop && !ex) return null;
+  const { id: _i, name: _n, ...exits } = ex || {};
+  return { stop, exits: ex ? exits : null };
+}
+
 /**
  * The best partner for an indicator: each starting check with the checks that did best beside it, learned on the older days and
  * checked on newer days it had not seen. "Add" saves a pair under My combinations, switched off. `endpoint` is '/options' or '/auto'.
@@ -76,10 +86,10 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
   if (!pf) return null;
   const saved = own.data?.settings?.combos;
 
-  async function add(f, stop = null) {
+  async function add(f, stop = null, exits = null) {
     setBusy(f.conds.join('+'));
     try {
-      await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f, stop) } });
+      await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f, stop, exits) } });
       own.reload?.();
       toast.success('Added, switched off. Turn it on under Account > Entries.');
     } catch (e) {
@@ -135,9 +145,9 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
                     <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f)}>
                       {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (30)'}
                     </button>
-                    {endpoint === '/options' && (f.research?.mix?.apply?.comboStop ?? bestOf(f.research).stop?.apply?.comboStop) && canAdd(saved) && (
-                      <button type="button" className="btn btn-sm" disabled={busy != null || !saved} onClick={() => add(f, f.research.mix?.apply?.comboStop ?? bestOf(f.research).stop.apply.comboStop)}>
-                        Add with its best stop
+                    {endpoint === '/options' && best(f) && canAdd(saved) && (
+                      <button type="button" className="btn btn-sm" disabled={busy != null || !saved} onClick={() => add(f, best(f).stop, best(f).exits)}>
+                        Add with its best settings
                       </button>
                     )}
                   </div>
