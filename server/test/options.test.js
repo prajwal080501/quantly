@@ -1102,3 +1102,35 @@ test('the options API reads either index, and buys a Sensex option by hand', asy
   await api().post('/api/options/buy').set(fresh.auth).send({ type: 'CE', index: 'DAX' }).expect(400);
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 });
+
+test('a combination with exits of its own buys with its own profit ladder, trail and break-even; with none it keeps the Account ones', async () => {
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    const fresh = await registerUser(app);
+    const uid = fresh.user.id || fresh.user._id;
+    const plain = normalizeCombos([{ name: 'Break and trend', conds: ['p_breakout', 'aboveEma20'] }]);
+    const own = normalizeCombos([{ name: 'Break and trend', conds: ['p_breakout', 'aboveEma20'], exits: { steps: [{ at: 3000, keep: 2500 }, { at: 3500, keep: 3000 }], trail: { points: 30 }, breakEven: 20 } }]);
+    const open = async (combos, tag, who = fresh) => {
+      const uid = who.user.id || who.user._id;
+      const s = (await OptionSettings.create({ user: uid, enabled: true, combos })).toObject();
+      const r = await optionTrader.considerCombos(s, breakoutRead());
+      assert.ok(r.order, `${tag}: ${r.skipped}`);
+      const pos = await Position.findOne({ user: uid, symbol: r.plan.symbol, status: 'OPEN' }).lean();
+      const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).sort({ _id: -1 }).lean();
+      await api().post('/api/positions/exit-all').set(who.auth).expect(200);
+      return { pos, log };
+    };
+    const a = await open(own, 'own');
+    assert.deepEqual((a.pos.lockSteps || []).map(({ at, keep }) => [at, keep]), [[3000, 2500], [3500, 3000]], 'its own ladder replaces the Account one');
+    assert.equal(a.pos.lockTrigger ?? null, null);
+    assert.deepEqual([a.log.detail.trail, a.log.detail.breakEven], [{ points: 30, start: 30 }, 20]);
+    assert.deepEqual(a.log.detail.ownExits.steps.length, 2);
+    const b = await open(plain, 'plain', await registerUser(app)); // a bar is bought once per user, so the plain combination is bought by another
+    assert.ok(b.pos.lockSteps?.length > 1 || b.pos.lockTrigger != null, 'with no exits of its own the Account ladder is used');
+    assert.notDeepEqual((b.pos.lockSteps || []).map((r) => r.at), [3000, 3500]);
+    assert.equal(b.log.detail.ownExits, undefined);
+  } finally {
+    optionTrader.now = realNow;
+  }
+});
