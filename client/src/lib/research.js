@@ -16,6 +16,14 @@ export function applyText(apply) {
   const ruleWord = (r) => (r.mode === 'chart' ? 'at the chart level' : r.mode === 'cap' ? `at the chart level, pulled in to ${r.k} ATR` : r.mode === 'atr' ? `${r.k} ATR from the entry` : `${r.points} points from the entry`);
   if (apply.patternStop) parts.push(`stop ${ruleWord(apply.patternStop)} for every entry`);
   if (apply.comboStop) parts.push(`stop ${ruleWord(apply.comboStop)} for the combination "${apply.comboStop.name}" only`);
+  if (apply.comboExits) {
+    const e = apply.comboExits;
+    const bits = [];
+    if ('steps' in e) bits.push(e.steps?.length ? `${e.steps.length}-step profit ladder (${e.steps.map((x) => `+${x.at} keeps ${x.keep}`).join(', ')})` : 'no profit ladder');
+    if ('trail' in e) bits.push(e.trail ? `trailing stop ${e.trail.points} points behind the best price` : 'no trailing stop');
+    if ('breakEven' in e) bits.push(`stop moves to your entry price after ${e.breakEven} points`);
+    parts.push(`${bits.join(', ')} for the combination "${e.name}" only`);
+  }
   if (apply.lossLimit != null) parts.push(`most one trade may lose ${rs(apply.lossLimit)}`);
   if (apply.steps) parts.push(`${apply.steps.length}-step profit ladder (${apply.steps.map((s) => `+${s.at} keeps ${s.keep}`).join(', ')})`);
   if (apply.breakEven) parts.push(`stop moves to your entry price after ${apply.breakEven} points`);
@@ -27,9 +35,21 @@ export function applyText(apply) {
 export function applyRequests(apply, { combos = [] } = {}) {
   const out = [];
   if (apply?.patternStop) out.push({ path: '/options', body: { patternStopMode: apply.patternStop.mode, patternStopAtr: apply.patternStop.k, patternStopPoints: apply.patternStop.points } });
-  if (apply?.comboStop) {
+  if (apply?.comboStop || apply?.comboExits) {
     const s = apply.comboStop;
-    out.push({ path: '/options', body: { combos: combos.map((c) => (c.id === s.id ? { ...c, stopMode: s.mode, stopAtr: s.k, stopPoints: s.points } : c)) } });
+    const { id: _id, name: _name, ...x } = apply.comboExits || {};
+    const id = s?.id ?? apply.comboExits.id;
+    out.push({
+      path: '/options',
+      body: {
+        combos: combos.map((c) => {
+          if (c.id !== id) return c;
+          const next = s ? { ...c, stopMode: s.mode, stopAtr: s.k, stopPoints: s.points } : { ...c };
+          if (apply.comboExits) next.exits = { ...(c.exits || {}), ...x };
+          return next;
+        }),
+      },
+    });
   }
   const options = {};
   if (apply?.lossLimit != null) options.stopLoss = apply.lossLimit;

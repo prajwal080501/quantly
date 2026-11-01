@@ -56,3 +56,16 @@ describe('comboResearchText', () => {
     expect(comboResearchText(null, 'x')).toBe('');
   });
 });
+
+import { applyRequests as ar2, applyText as at2 } from './research.js';
+import { it as i3, expect as e3 } from 'vitest';
+
+i3('comboExits saves into the matching combination only, with its stop in the same save', () => {
+  const combos = [{ id: 'a', name: 'A', exits: { breakEven: 10 } }, { id: 'b', name: 'B' }];
+  const apply = { comboStop: { id: 'a', name: 'A', mode: 'fixed', points: 30 }, comboExits: { id: 'a', name: 'A', trail: { points: 20, start: 20 } } };
+  const q = ar2(apply, { combos });
+  e3(q).toHaveLength(1);
+  e3(q[0].body.combos[0]).toMatchObject({ stopMode: 'fixed', exits: { breakEven: 10, trail: { points: 20, start: 20 } } });
+  e3(q[0].body.combos[1]).toEqual(combos[1]);
+  e3(at2(apply)).toContain('trailing stop 20 points');
+});

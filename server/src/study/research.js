@@ -42,6 +42,8 @@ const sameRule = (a, b) => (a?.mode ?? 'chart') === (b?.mode ?? 'chart') && (a?.
 const MIN_TRAIN = 10;
 
 const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
+/** What "Use this" saves for an exit setting: the shared one, or, for one combination, that combination's own exits. */
+const exitApply = (combo, part, shared) => (combo ? { comboExits: { id: combo.id, name: combo.name, ...part } } : shared);
 
 /** The rows to try, as `{ key, group, label, text, set (what changes in params), apply (what a tap on Apply would save, or null when the live trader has no such setting) }`. */
 export function variants(params, { combo = null, grid = false } = {}) {
@@ -56,27 +58,27 @@ export function variants(params, { combo = null, grid = false } = {}) {
     out.push({ key: `stop-${t.key}`, group: 'stoprule', label: `Stop at ${t.label}`, text: `The same entries, but the first stop is ${t.label}${combo ? ' (the stop this combination would use)' : ''}. It still sits at least 0.8 ATR from the entry and a stop over 2.5 ATR away is skipped.`, set: { stopRule: t.rule }, apply, current: sameRule(t.rule, params.stopRule) });
   }
   out.push({ key: 'ladder-yours', group: 'ladder', label: 'Your ladder as it is', text: yours.length ? `${yours.length} steps from Account > Limits.` : 'Your current profit lock.', set: {}, apply: null, current: true });
-  if (yours.length > 6) out.push({ key: 'ladder-yours6', group: 'ladder', label: `Your ladder, top ${yours.length - 6} steps dropped`, text: `Only the first 6 of your ${yours.length} steps.`, set: { steps: yours.slice(0, 6) }, apply: { steps: yours.slice(0, 6) } });
-  for (const l of LADDERS) out.push({ key: `ladder-${l.key}`, group: 'ladder', label: l.label, text: l.text, set: { steps: l.steps }, apply: { steps: l.steps } });
+  if (yours.length > 6) out.push({ key: 'ladder-yours6', group: 'ladder', label: `Your ladder, top ${yours.length - 6} steps dropped`, text: `Only the first 6 of your ${yours.length} steps.`, set: { steps: yours.slice(0, 6) }, apply: exitApply(combo, { steps: yours.slice(0, 6) }, { steps: yours.slice(0, 6) }) });
+  for (const l of LADDERS) out.push({ key: `ladder-${l.key}`, group: 'ladder', label: l.label, text: l.text, set: { steps: l.steps }, apply: exitApply(combo, { steps: l.steps }, { steps: l.steps }) });
   if (grid) {
     for (const start of GRID_STARTS) {
       for (const gap of GRID_GAPS) {
         if (GRID_SKIP.has(`${start}|${gap}`) || gap >= start) continue;
         const l = roomLadder(`grid${start}-${gap}`, start, gap);
-        out.push({ key: `ladder-${l.key}`, group: 'ladder', label: l.label, text: l.text, set: { steps: l.steps }, apply: { steps: l.steps } });
+        out.push({ key: `ladder-${l.key}`, group: 'ladder', label: l.label, text: l.text, set: { steps: l.steps }, apply: exitApply(combo, { steps: l.steps }, { steps: l.steps }) });
       }
     }
   }
-  out.push({ key: 'ladder-none', group: 'ladder', label: 'No profit lock', text: 'Winners are left alone until the stop, the trailing stop or the closing time sells them.', set: { steps: [] }, apply: null });
+  out.push({ key: 'ladder-none', group: 'ladder', label: 'No profit lock', text: 'Winners are left alone until the stop, the trailing stop or the closing time sells them.', set: { steps: [] }, apply: exitApply(combo, { steps: [] }, null) });
   for (const t of TARGETS) out.push({ key: `target${t}`, group: 'ladder', label: `Sell at +${rs(t)} a lot`, text: `A fixed target of ${rs(t)} per lot and no profit lock. A study choice only: the live options trader does not sell at a fixed target.`, set: { target: t }, apply: null });
   for (const points of TRAIL_POINTS) {
-    out.push({ key: `trail${points}`, group: 'trail', label: `Trail ${points} points, with your ladder`, text: `Once Nifty has moved ${points} points your way, the stop follows ${points} points behind the best price. Your profit ladder stays.${params.trail ? ' This replaces the trailing stop you have set.' : ''}`, set: { trail: { points, start: points } }, apply: { trail: { points, start: points } }, current: params.trail?.points === points && params.trail?.start === points });
+    out.push({ key: `trail${points}`, group: 'trail', label: `Trail ${points} points, with your ladder`, text: `Once Nifty has moved ${points} points your way, the stop follows ${points} points behind the best price. Your profit ladder stays.${params.trail ? ' This replaces the trailing stop you have set.' : ''}`, set: { trail: { points, start: points } }, apply: exitApply(combo, { trail: { points, start: points } }, { trail: { points, start: points } }), current: params.trail?.points === points && params.trail?.start === points });
   }
   for (const points of [20, 30, 40]) {
-    out.push({ key: `trailonly${points}`, group: 'trail', label: `Trail ${points} points, no profit lock`, text: `The trailing stop alone: ${points} points behind the best price once Nifty has moved ${points} points your way, and no profit ladder.`, set: { trail: { points, start: points }, steps: [] }, apply: null });
+    out.push({ key: `trailonly${points}`, group: 'trail', label: `Trail ${points} points, no profit lock`, text: `The trailing stop alone: ${points} points behind the best price once Nifty has moved ${points} points your way, and no profit ladder.`, set: { trail: { points, start: points }, steps: [] }, apply: exitApply(combo, { trail: { points, start: points }, steps: [] }, null) });
   }
   for (const points of BREAK_EVEN_POINTS) {
-    out.push({ key: `be${points}`, group: 'trail', label: `Break-even after ${points} points`, text: `Once Nifty has moved ${points} points your way the stop moves to your entry price, so the trade can no longer lose on the chart stop. Your ladder stays.`, set: { breakEven: points }, apply: { breakEven: points }, current: params.breakEven === points });
+    out.push({ key: `be${points}`, group: 'trail', label: `Break-even after ${points} points`, text: `Once Nifty has moved ${points} points your way the stop moves to your entry price, so the trade can no longer lose on the chart stop. Your ladder stays.`, set: { breakEven: points }, apply: exitApply(combo, { breakEven: points }, { breakEven: points }), current: params.breakEven === points });
   }
   return out;
 }
@@ -88,10 +90,13 @@ export function variants(params, { combo = null, grid = false } = {}) {
  */
 export async function runResearch({ signals, tradesFor, midTime, trainEnd, params: given, combo = null, grid = false, onProgress = () => {}, yieldTurn = () => Promise.resolve() }) {
   const params = { ...given, target: 0 }; // the research always starts from the profit ladder, whatever exit the study screen used
+  // A combination's own exits (on its signals) would hide a row that changes the same thing, so a row sets aside the ones it replaces.
   const run = async (set) => {
     const p = { ...params, ...set };
     if (set.target) p.steps = [];
-    const { trades, skippedWide } = tradesFor(signals, { params: p });
+    const drop = ['steps', 'trail', 'breakEven'].filter((k) => k in set || (k === 'steps' && set.target));
+    const sigs = drop.length && signals.some((x) => x.exits) ? signals.map((x) => (x.exits ? { ...x, exits: Object.fromEntries(Object.entries(x.exits).filter(([k]) => !drop.includes(k))) } : x)) : signals;
+    const { trades, skippedWide } = tradesFor(sigs, { params: p });
     return { trades, skippedWide };
   };
   const describe = (trades) => {
@@ -134,6 +139,7 @@ export async function runResearch({ signals, tradesFor, midTime, trainEnd, param
       const { trades } = await run(set);
       const whole = describe(trades);
       const apply = Object.assign({}, ...parts.map((r) => r.apply));
+      if (parts.some((r) => r.apply.comboExits)) apply.comboExits = Object.assign({}, ...parts.map((r) => r.apply.comboExits || {}));
       mix = { label: 'Best of each, picked on the older days', text: `${parts.map((r) => r.label).join('; ')}. Each was picked by what it earned on the older days only; the second line shows the newest days it never saw.`, apply, ...whole };
     }
   }

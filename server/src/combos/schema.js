@@ -12,6 +12,7 @@ export const comboSchema = new mongoose.Schema(
     stopMode: { type: String, enum: ['chart', 'cap', 'atr', 'fixed'], default: undefined }, // its own stop; unset = the shared stop of Account > Entries
     stopAtr: { type: Number, min: 0.8, max: 2.5, default: undefined },
     stopPoints: { type: Number, min: 10, max: 150, default: undefined },
+    exits: { type: mongoose.Schema.Types.Mixed, default: undefined }, // its own profit ladder, trail and break-even (see normalizeExits); a part left out uses the shared setting
   },
   { _id: false },
 );

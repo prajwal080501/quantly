@@ -37,7 +37,12 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
+<<<<<<< HEAD
   const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
+=======
+  // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades
+  const { prices = null, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = signal.exits ? { ...params, ...signal.exits } : params;
+>>>>>>> 17f03de338ada61de45b30943fe1c807130268a6
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const prices = given && (!mixPrices || given.hasDay(istParts(new Date(signal.time * 1000)).dateKey)) ? given : null; // mixPrices: a day with no saved premiums is estimated, not skipped

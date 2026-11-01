@@ -36,7 +36,24 @@ export function ruleText(combo) {
 /** A combination ready to send: ids and names filled, `need` 0 turned into the count. */
 export function toPayload(combo, index = 0) {
   const own = combo.stopMode ? { stopMode: combo.stopMode, stopAtr: combo.stopAtr || 2, stopPoints: combo.stopPoints || 30 } : {};
-  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...own };
+  const exits = combo.exits && Object.keys(combo.exits).length ? { exits: combo.exits } : {};
+  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...own, ...exits };
+}
+
+/** A profit ladder of 8 rows 500 apart: lock `gap` points less than the gain reached. */
+export function roomSteps(start = 1000, gap = 500) {
+  return Array.from({ length: 8 }, (_, i) => { const at = start + i * 500; return { at, keep: Math.max(1, at - gap) }; });
+}
+
+/** A combination's own exits in words, or null when it uses the Account ones. */
+export function exitsText(c) {
+  const e = c?.exits;
+  if (!e) return null;
+  const out = [];
+  if ('steps' in e) out.push(e.steps?.length ? `profit ladder from ${e.steps[0].at} (${e.steps.length} steps)` : 'no profit ladder');
+  if ('trail' in e) out.push(e.trail ? `trail ${e.trail.points} points` : 'no trail');
+  if ('breakEven' in e) out.push(e.breakEven ? `break-even at ${e.breakEven} points` : 'no break-even');
+  return out.length ? out.join(', ') : null;
 }
 
 /** Load a saved combination into the editor: "all" is shown as need 0. */
