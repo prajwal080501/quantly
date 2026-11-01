@@ -66,7 +66,7 @@ function breakdown(trades, midTime) {
  * @param base    'combo:<id>' or 'pattern:<key>'
  * @param add     check keys added to the base (all must hold), at most MAX_ADD
  */
-export function runLab({ nifty1, stocks5 = null, params, base, add = [], from = null, to = null, days = 22 }) {
+export function analyzeLab({ nifty1, stocks5 = null, params, base, from = null, to = null, days = 22 }) {
   const complete = to ? nifty1.filter((b) => dayKey(b.time) <= to) : nifty1;
   const allDays = [...new Set(complete.map((b) => DAY(b.time)))].sort((a, b) => a - b);
   const dayNo = (key) => Date.parse(`${key}T00:00:00Z`) / 86400000;
@@ -114,7 +114,6 @@ export function runLab({ nifty1, stocks5 = null, params, base, add = [], from = 
   const baseSignal = new Map(baseRun.signals.map((s) => [`${s.time}|${s.side}`, s]));
   const baseKeys = new Set(baseRun.trades.map(keyOf));
   const baseNet = sum(baseRun.trades.map((t) => t.net));
-  const cleanAdd = [...new Set(add)].filter((k) => CONDITION_BY_KEY.has(k) && !conds.includes(k) && usable(CONDITION_BY_KEY.get(k), chart.have)).slice(0, MAX_ADD);
 
   // every other check, added on its own: what it would have skipped and what it would have added
   const rows = [];
@@ -148,6 +147,13 @@ export function runLab({ nifty1, stocks5 = null, params, base, add = [], from = 
     });
   }
   rows.sort((a, b) => b.gain - a.gain);
+  return { kind, conds, chart, params, traded, baseRun, baseSignal, baseKeys, baseNet, rows, complete, bars5, studyDays, fromTime, midTime, base, name, text };
+}
+
+/** The part that depends on the picked checks: which entries they skip, the new result, the day list. Cheap, so a tap on a check does not redo the ranking. */
+export function presentLab(ctx, add = []) {
+  const { kind, conds, chart, params, traded, baseRun, baseSignal, baseKeys, rows, complete, bars5, studyDays, fromTime, midTime, base, name, text } = ctx;
+  const cleanAdd = [...new Set(add)].filter((k) => CONDITION_BY_KEY.has(k) && !conds.includes(k) && usable(CONDITION_BY_KEY.get(k), chart.have)).slice(0, MAX_ADD);
 
   // the entry list: every entry of the base, marked kept or removed once checks are added, and the entries the new combination adds
   const sel = cleanAdd.length ? traded(cleanAdd) : null;
@@ -229,3 +235,6 @@ export function runLab({ nifty1, stocks5 = null, params, base, add = [], from = 
     rangeFrom: fromTime,
   };
 }
+
+/** Both steps at once. */
+export const runLab = (opts) => presentLab(analyzeLab(opts), opts.add);

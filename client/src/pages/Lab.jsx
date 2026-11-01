@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { FlaskConical } from 'lucide-react';
 import { api } from '../lib/api.js';
@@ -8,8 +8,8 @@ import { canAdd, withFound } from '../lib/autoFind.js';
 import { LAB_DAYS, LAB_PRICES, addonLine, dayWord, entryStory, exitStory, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
 import { VERDICT } from '../lib/combos.js';
 import { whyText } from '../lib/patternReview.js';
-import { DayChart } from '../components/DayChart.jsx';
 import { LabChart } from '../components/LabChart.jsx';
+import { TradeChart } from '../components/TradeChart.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -127,15 +127,25 @@ function MonthChart({ r, entries, selected, onPick }) {
 }
 
 /** One entry on its own day, with where it went in and out, and what would have skipped it. */
-function EntryDetail({ r, e, onPick }) {
-  const { theme } = useTheme();
-  const day = e.day;
-  const candles = useMemo(() => r.candles.filter((c) => dayOfSec(c.time) === day), [r, day]);
-  const warm = useMemo(() => r.candles.filter((c) => c.time < (candles[0]?.time ?? 0)).slice(-150), [r, candles]);
-  const markers = useMemo(() => entryMarkers([e], { up: cssVar('--up'), down: cssVar('--down'), muted: cssVar('--muted') }, e.id), [e, theme]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lines = useMemo(() => [{ price: e.entrySpot, color: cssVar('--accent'), title: 'Entry' }, { price: e.stop, color: cssVar('--down'), title: 'Stop' }], [e, theme]); // eslint-disable-line react-hooks/exhaustive-deps
+function EntryDetail({ r, e, entries, onPick, onClose }) {
+  const bars = useMemo(() => {
+    const at = r.candles.findIndex((c) => dayOfSec(c.time) === e.day);
+    const end = r.candles.findLastIndex((c) => dayOfSec(c.time) === e.day);
+    return at < 0 ? [] : r.candles.slice(Math.max(0, at - 75), end + 1);
+  }, [r, e.day]);
+  const trade = useMemo(() => ({ side: e.side, entryTime: e.entryTime, exitTime: e.exitTime, entrySpot: e.entrySpot, exitSpot: e.exitSpot, stop: e.stop, net: e.net, label: `${e.side === 'CE' ? 'Buy call' : 'Buy put'} ${whenText(e.entryTime).split(' ').slice(2).join(' ')}`, exitLabel: `${exitWord(e.reason)} ${formatPnl(e.net)}` }), [e]);
+  const at = entries.findIndex((x) => x.id === e.id);
+  const prev = entries[at - 1];
+  const next = entries[at + 1];
   return (
     <Card className="space-y-2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-1.5">
+          <button type="button" className="btn btn-sm" disabled={!prev} onClick={() => onPick(prev.id)} aria-label="Earlier entry">‹ Earlier</button>
+          <button type="button" className="btn btn-sm" disabled={!next} onClick={() => onPick(next.id)} aria-label="Later entry">Later ›</button>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
+      </div>
       <div className="flex items-start justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold">{e.side === 'CE' ? 'Call' : 'Put'} bought {whenText(e.entryTime)}</h3>
@@ -146,9 +156,9 @@ function EntryDetail({ r, e, onPick }) {
           <div className="text-[11px] text-muted">{exitWord(e.reason)} after {e.minutes} min</div>
         </div>
       </div>
-      {candles.length > 0 && <DayChart candles={candles} warm={warm} isIndex markers={markers} lines={lines} height={260} onPick={() => onPick?.(e.id)} />}
-      <p className="num text-[11px] text-muted">Index {formatPrice(e.entrySpot)} to {formatPrice(e.exitSpot)}, stop {formatPrice(e.stop)}. Best it showed {formatPnl(e.best)}, worst {formatPnl(e.worst)}. Charges {formatPnl(-e.charges)}.</p>
-      {e.why?.length > 0 && <p className="text-[11px] text-muted">Checks at the entry: {whyText(e.why)}</p>}
+      {bars.length > 0 && <TradeChart bars={bars} trade={trade} />}
+      <p className="text-xs leading-snug"><b>Entry.</b> {entryStory(e)}</p>
+      <p className="text-xs leading-snug"><b>Exit.</b> {exitStory(e)}</p>
       {e.net <= 0 && (
         <div className="space-y-1 rounded-lg bg-surface-2 p-2">
           <div className="text-xs font-semibold">What would have skipped this loss</div>
@@ -291,6 +301,19 @@ export default function Lab({ embedded = false }) {
   const r = run.data?.result;
   const saved = own.data?.settings?.combos;
   const pick = (value) => { setBase(value); setAdd([]); setSelected(null); try { localStorage.setItem(STORE, value); } catch { /* not remembered */ } };
+  const backTo = useRef(null);
+  // opening an entry jumps to it and remembers where you were, so Close can take you back
+  const openEntry = (id) => {
+    if (selected == null) backTo.current = window.scrollY;
+    setSelected(id);
+    setTimeout(() => document.getElementById('lab-entry')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  };
+  const closeEntry = () => {
+    setSelected(null);
+    const y = backTo.current;
+    backTo.current = null;
+    if (y != null) setTimeout(() => window.scrollTo({ top: y, behavior: 'smooth' }), 60);
+  };
   const chosen = r?.entries.find((e) => e.id === selected) ?? null;
   const comboBase = base.startsWith('combo:');
 
@@ -349,14 +372,14 @@ export default function Lab({ embedded = false }) {
           <Card className="space-y-2 p-3">
             <h3 className="text-sm font-semibold">Chart with every entry</h3>
             <p className="text-[11px] text-muted">Arrows: up is a call, down a put, green won, red lost, grey skipped with your picks. Tap one to open it.</p>
-            <MonthChart r={r} entries={r.entries} selected={selected} onPick={setSelected} />
+            <MonthChart r={r} entries={r.entries} selected={selected} onPick={openEntry} />
           </Card>
 
-          {chosen && <div id="lab-entry"><EntryDetail r={r} e={chosen} onPick={setSelected} /></div>}
+          {chosen && <div id="lab-entry"><EntryDetail r={r} e={chosen} entries={r.entries} onPick={setSelected} onClose={closeEntry} /></div>}
 
           <Card className="space-y-2 p-3">
             <h3 className="text-sm font-semibold">History, day by day</h3>
-            <DayHistory r={r} onShow={(id) => { setSelected(id); setTimeout(() => document.getElementById('lab-entry')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }} />
+            <DayHistory r={r} onShow={openEntry} />
           </Card>
 
           <Card className="space-y-2 border-accent2/40 p-3">
@@ -374,7 +397,7 @@ export default function Lab({ embedded = false }) {
 
           <Card className="space-y-2 p-3">
             <h3 className="text-sm font-semibold">All entries ({r.entries.length})</h3>
-            {r.entries.length ? <Entries rows={r.entries} selected={selected} onPick={setSelected} /> : <p className="text-xs text-muted">This gave no entry in these days.</p>}
+            {r.entries.length ? <Entries rows={r.entries} selected={selected} onPick={openEntry} /> : <p className="text-xs text-muted">This gave no entry in these days.</p>}
           </Card>
 
           {r.stats.trades > 0 && (
