@@ -7,7 +7,7 @@ import { stopRuleOf } from '../study/patterns.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { PriceBook } from '../study/priceBook.js';
 import { badRequest } from '../utils/errors.js';
-import { lines, runLab } from './lab.js';
+import { analyzeLab, lines, presentLab } from './lab.js';
 
 const WARMUP_DAYS = 6;
 const CACHE_MS = 10 * 60_000;
@@ -18,6 +18,8 @@ export class LabService {
     this.market = market;
     this.config = config;
     this.cache = new Map(); // `${index}|${calendar}` -> { at, value }
+    this.books = new Map(); // index -> { at, book }: the saved option premiums, read once and kept for a few minutes
+    this.analyses = new Map(); // the ranking of every check for one start, so picking checks does not redo it
   }
 
   async #data(index, calendar) {
@@ -35,6 +37,14 @@ export class LabService {
     this.cache.set(key, { at: Date.now(), value });
     for (const [k, v] of this.cache) if (Date.now() - v.at >= CACHE_MS) this.cache.delete(k);
     return value;
+  }
+
+  async #book(index) {
+    const hit = this.books.get(index);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.book;
+    const book = await PriceBook.load(index);
+    this.books.set(index, { at: Date.now(), book });
+    return book;
   }
 
   async #params(userId, index) {
@@ -77,14 +87,21 @@ export class LabService {
     const [{ nifty1, stocks5 }, { params }] = await Promise.all([this.#data(index, calendar), this.#params(userId, index)]);
     let mode = 'estimated';
     if (prices !== 'estimated') {
-      const book = await PriceBook.load(index);
+      const book = await this.#book(index);
       if (book.days.length) {
         params.prices = book;
         params.mixPrices = prices === 'mixed';
         mode = prices;
       }
     }
-    const out = runLab({ nifty1, stocks5, params, base, add, from, to, days });
+    const key = `${index}|${calendar}|${base}|${from}|${to}|${days}|${mode}|${JSON.stringify({ ...params, prices: params.prices?.days.length ?? 0 })}|${nifty1.length}`;
+    let hit = this.analyses.get(key);
+    if (!hit || Date.now() - hit.at >= CACHE_MS) {
+      hit = { at: Date.now(), ctx: analyzeLab({ nifty1, stocks5, params, base, from, to, days }) };
+      this.analyses.set(key, hit);
+      for (const [k, v] of this.analyses) if (Date.now() - v.at >= CACHE_MS) this.analyses.delete(k);
+    }
+    const out = presentLab(hit.ctx, add);
     return { index, mode, savedDays: params.prices ? params.prices.days.length : 0, ...out };
   }
 }

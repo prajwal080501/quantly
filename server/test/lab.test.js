@@ -73,3 +73,26 @@ test('every trading day of the period is listed with the index move and its entr
   assert.equal(Math.round(r.dayList.reduce((a, d) => a + d.net, 0)), Math.round(r.stats.net));
   assert.ok(r.entries.every((e) => e.exitPremium >= 0));
 });
+
+import mongoose from 'mongoose';
+import { LabService } from '../src/lab/service.js';
+import { INDEXES } from '../src/options/symbols.js';
+import { setup, teardown, closeDb, baseConfig } from './helpers.js';
+
+test('the lab service reads the candles once and ranks the checks once, so picking checks is quick', async () => {
+  const ctx = await setup();
+  let reads = 0;
+  const market = { weekdayOf: () => 2, getStudyRange: async (symbol, unit) => { reads += 1; return symbol === INDEXES.NIFTY.symbol && unit === 1 ? nifty1 : []; } };
+  const lab = new LabService({ market, config: baseConfig });
+  const user = new mongoose.Types.ObjectId();
+  const first = await lab.run(user, { base: 'pattern:breakout', days: 10, prices: 'estimated' });
+  const readsAfterFirst = reads;
+  const pick = first.addons.find((a) => a.removed.trades > 0);
+  const second = await lab.run(user, { base: 'pattern:breakout', days: 10, prices: 'estimated', add: [pick.key] });
+  assert.equal(reads, readsAfterFirst, 'no candles were read again');
+  assert.equal(lab.analyses.size, 1, 'one ranking served both requests');
+  assert.deepEqual(second.addons, first.addons);
+  assert.equal(second.withAdd.trades, first.entries.length - pick.removed.trades + pick.added.trades);
+  await teardown(ctx);
+  await closeDb();
+});
