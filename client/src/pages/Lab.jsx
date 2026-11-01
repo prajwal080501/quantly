@@ -5,7 +5,7 @@ import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl as rawPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { canAdd, withFound } from '../lib/autoFind.js';
-import { LAB_DAYS, LAB_PRICES, addonLine, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
+import { LAB_DAYS, LAB_PRICES, addonLine, dayWord, entryStory, exitStory, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
 import { VERDICT } from '../lib/combos.js';
 import { whyText } from '../lib/patternReview.js';
 import { DayChart } from '../components/DayChart.jsx';
@@ -200,6 +200,56 @@ function Entries({ rows, selected, onPick }) {
   );
 }
 
+/** The history day by day: how the index moved, and for each entry why it was taken, how it ended, and what would have skipped a loss. */
+function DayHistory({ r, onShow }) {
+  const byId = useMemo(() => new Map(r.entries.map((e) => [e.id, e])), [r]);
+  const days = [...r.dayList].reverse();
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-muted">Newest day first. Tap a day to read each entry and exit. "Real" means the option prices come from the premiums saved that evening; "Estimated" means the model's price.</p>
+      <ul className="space-y-2">
+        {days.map((d) => (
+          <li key={d.day}>
+            <details className="rounded-xl border border-line">
+              <summary className="flex cursor-pointer items-start justify-between gap-3 px-3 py-2.5">
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{dayWord(d.day)} <Badge tone={d.realPrices ? 'up' : 'muted'}>{d.realPrices ? 'Real prices' : 'Estimated'}</Badge></span>
+                  <span className="num block text-[11px] text-muted">Index {formatPrice(d.open)} to {formatPrice(d.close)} ({d.changePts >= 0 ? '+' : ''}{Math.round(d.changePts)} pts, range {Math.round(d.rangePts)})</span>
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className={`num block text-sm font-bold ${d.trades ? pnlClass(d.net) : 'text-muted'}`}>{d.trades ? formatPnl(d.net) : 'No entry'}</span>
+                  {d.trades > 0 && <span className="num block text-[11px] text-muted">{d.trades} entr{d.trades === 1 ? 'y' : 'ies'}</span>}
+                </span>
+              </summary>
+              <div className="space-y-3 border-t border-line p-3">
+                {d.entries.length === 0 && <p className="text-xs text-muted">The combination did not fire on this day, so nothing was bought.</p>}
+                {d.entries.map((id) => {
+                  const e = byId.get(id);
+                  return (
+                    <div key={id} className={`space-y-1.5 rounded-lg bg-surface-2 p-2.5 text-xs leading-snug ${e.status === 'removed' ? 'opacity-60' : ''}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">{e.side === 'CE' ? 'Call' : 'Put'} at {whenText(e.entryTime).split(' ').slice(2).join(' ')} {e.status === 'removed' && <Badge tone="muted">Skipped with picks</Badge>} {e.status === 'added' && <Badge tone="accent">Added by picks</Badge>}</span>
+                        <span className={`num font-bold ${pnlClass(e.net)}`}>{formatPnl(e.net)}</span>
+                      </div>
+                      <p><b>Entry.</b> {entryStory(e)}</p>
+                      <p><b>Exit.</b> {exitStory(e)}</p>
+                      {e.net <= 0 && e.fixes.length > 0 && (
+                        <p><b>To avoid this loss:</b> {e.fixes.slice(0, 3).map((f) => `${f.label} (${f.winnersLost ? `also skips ${f.winnersLost} winner${f.winnersLost === 1 ? '' : 's'}` : 'skips no winner'})`).join('; ')}.</p>
+                      )}
+                      {e.net <= 0 && e.fixes.length === 0 && <p className="text-muted">No single indicator tried would have skipped this one.</p>}
+                      <button type="button" className="btn btn-sm" onClick={() => onShow(id)}>Show on chart</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Addons({ rows, add, onToggle }) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, 10);
@@ -231,7 +281,7 @@ function Addons({ rows, add, onToggle }) {
 export default function Lab({ embedded = false }) {
   const [base, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
   const [add, setAdd] = useState([]);
-  const [days, setDays] = useState('22');
+  const [days, setDays] = useState('15');
   const [prices, setPrices] = useState('mixed');
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -302,7 +352,12 @@ export default function Lab({ embedded = false }) {
             <MonthChart r={r} entries={r.entries} selected={selected} onPick={setSelected} />
           </Card>
 
-          {chosen && <EntryDetail r={r} e={chosen} onPick={setSelected} />}
+          {chosen && <div id="lab-entry"><EntryDetail r={r} e={chosen} onPick={setSelected} /></div>}
+
+          <Card className="space-y-2 p-3">
+            <h3 className="text-sm font-semibold">History, day by day</h3>
+            <DayHistory r={r} onShow={(id) => { setSelected(id); setTimeout(() => document.getElementById('lab-entry')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }} />
+          </Card>
 
           <Card className="space-y-2 border-accent2/40 p-3">
             <h3 className="text-sm font-semibold text-accent2">Add an indicator</h3>

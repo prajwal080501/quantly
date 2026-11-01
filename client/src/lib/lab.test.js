@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addonLine, entryMarkers, equityPath, equityRange, fixLine, labPath, togglePick, whenText } from './lab.js';
+import { dayWord, entryStory, exitStory, addonLine, entryMarkers, equityPath, equityRange, fixLine, labPath, togglePick, whenText } from './lab.js';
 
 describe('lab helpers', () => {
   it('labPath carries the start, picks, days and prices', () => {
@@ -30,5 +30,16 @@ describe('lab helpers', () => {
   });
   it('whenText gives an IST day and time', () => {
     expect(whenText(Date.UTC(2026, 9, 5, 4, 5) / 1000)).toBe('5 Oct 09:35');
+  });
+  it('tells an entry and its exit in plain words', () => {
+    const e = { side: 'CE', entryTime: Date.UTC(2026, 9, 5, 4, 45) / 1000, exitTime: Date.UTC(2026, 9, 5, 5, 5) / 1000, lots: 2, strike: 24100, entryPremium: 162, exitPremium: 150, entrySpot: 24079, exitSpot: 24071, stop: 24071, priced: 'real', why: [{ label: 'RSI above 50', held: true }, { label: 'VWAP', held: false }], reason: 'STOP', minutes: 20, best: 100, worst: -900, net: -846, charges: 96 };
+    expect(entryStory(e)).toContain('RSI above 50 held');
+    expect(entryStory(e)).toContain('2 lots of the 24100 call');
+    expect(exitStory(e)).toContain('reached the stop');
+    expect(exitStory(e)).toContain('Lost ₹846');
+    expect(exitStory({ ...e, reason: 'LOCK', net: 400 })).toContain('profit ladder');
+  });
+  it('dayWord names the weekday', () => {
+    expect(dayWord('2026-10-05')).toBe('Mon 5 Oct');
   });
 });

@@ -3,9 +3,9 @@ import { formatPnl as rawPnl } from './format.js';
 const formatPnl = (v) => rawPnl(Math.round(v));
 
 export const LAB_DAYS = [
-  { value: '10', label: '2 weeks' },
-  { value: '22', label: '1 month' },
-  { value: '44', label: '2 months' },
+  { value: '10', label: '10 days' },
+  { value: '15', label: '15 days' },
+  { value: '30', label: '30 days' },
 ];
 
 export const LAB_PRICES = [
@@ -80,4 +80,40 @@ export function equityPath(points, { w = 320, h = 90, pad = 4, min = null, max =
 export function equityRange(...lines) {
   const ys = [0, ...lines.flatMap((l) => (l || []).map((p) => p.net))];
   return { min: Math.min(...ys), max: Math.max(...ys) };
+}
+
+const clock = (sec) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(sec * 1000));
+const rs = (v) => `₹${Math.abs(Math.round(v)).toLocaleString('en-IN')}`;
+const px = (v) => Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+/** Why the entry was taken, in plain words: which checks held on the bar that just closed, what was bought and where the stop sat. */
+export function entryStory(e) {
+  const call = e.side === 'CE';
+  const held = (e.why || []).filter((w) => w.held).map((w) => w.label);
+  const why = held.length ? `${held.join(' and ')} ${held.length > 1 ? 'all held' : 'held'} on the 5-minute bar that had just closed` : e.note ? `the pattern "${e.note}" formed on the 5-minute bar that had just closed` : 'the entry rule fired on the bar that had just closed';
+  const gap = Math.abs(e.entrySpot - e.stop);
+  return `At ${clock(e.entryTime)} ${why}, so it bought ${e.lots} lot${e.lots > 1 ? 's' : ''} of the ${e.strike} ${call ? 'call' : 'put'} at ${rs(e.entryPremium)} (${e.priced === 'real' ? 'real saved price' : 'estimated price'}) with the index at ${px(e.entrySpot)}. The stop sat on the index at ${px(e.stop)}, ${Math.round(gap)} points ${call ? 'below' : 'above'} the entry.`;
+}
+
+/** How the entry ended, in plain words, with the numbers. */
+export function exitStory(e) {
+  const at = clock(e.exitTime);
+  const sold = `${rs(e.exitPremium)} with the index at ${px(e.exitSpot)}`;
+  const how = {
+    STOP: `At ${at} the index reached the stop at ${px(e.stop)}, so the option was sold at about ${sold}.`,
+    BREAKEVEN: `The trade had moved in its favour, so the stop was moved up to the entry price. At ${at} the index came back to it and the option was sold at about ${sold}.`,
+    TRAIL: `The trailing stop follows the best price. At ${at} the index fell back to it and the option was sold at about ${sold}.`,
+    LOCK: `The profit ladder raised its lock level as the profit grew. At ${at} the price fell back to that level and the option was sold at about ${sold}.`,
+    HARD: `At ${at} the option fell faster than the index stop could act, so the hard stop sold it at about ${sold}.`,
+    TARGET: `At ${at} the profit target was reached and the option was sold at about ${sold}.`,
+    EOD: `It was still open at the closing time, so at ${at} the option was sold at about ${sold}.`,
+  }[e.reason] ?? `Sold at ${at} (${e.reason}) at about ${sold}.`;
+  const result = e.net > 0 ? `Won ${rs(e.net)} after ${rs(e.charges)} charges.` : `Lost ${rs(e.net)} including ${rs(e.charges)} charges.`;
+  return `${how} Held ${e.minutes} minute${e.minutes === 1 ? '' : 's'}; at its best it showed ${rs(e.best)} up and at its worst ${rs(e.worst)} down. ${result}`;
+}
+
+/** "Mon 5 Oct" from a day key. */
+export function dayWord(day) {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(Date.UTC(y, m - 1, d)));
 }

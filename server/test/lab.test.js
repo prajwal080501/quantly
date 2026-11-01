@@ -64,3 +64,12 @@ test('a pattern can be the starting point, and a missing combination or unknown 
   assert.equal(c.combos[0].key, `combo:${combos[0].id}`);
   assert.ok(c.patterns.some((p) => p.key === 'pattern:breakout'));
 });
+
+test('every trading day of the period is listed with the index move and its entries, and each entry has an exit premium', () => {
+  const r = run();
+  assert.equal(r.dayList.length, 10);
+  assert.ok(r.dayList.every((d) => typeof d.changePts === 'number' && d.realPrices === false));
+  assert.equal(r.dayList.reduce((a, d) => a + d.trades, 0), r.entries.length);
+  assert.equal(Math.round(r.dayList.reduce((a, d) => a + d.net, 0)), Math.round(r.stats.net));
+  assert.ok(r.entries.every((e) => e.exitPremium >= 0));
+});

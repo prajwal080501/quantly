@@ -178,6 +178,7 @@ export function runLab({ nifty1, stocks5 = null, params, base, add = [], from = 
       expiry: t.expiry,
       lots: t.lots,
       entryPremium: t.entryPremium,
+      exitPremium: round2(Math.max(0, t.entryPremium + t.gross / ((t.lots || 1) * (params.lotSize || 1)))),
       gross: t.gross,
       charges: t.charges,
       net: t.net,
@@ -196,6 +197,20 @@ export function runLab({ nifty1, stocks5 = null, params, base, add = [], from = 
     ...(sel ? sel.trades.filter((t) => !baseKeys.has(keyOf(t))).map((t) => describe(t, 'added')) : []),
   ].sort((a, b) => a.entryTime - b.entryTime);
 
+  // every trading day of the period, with how the index moved and which entries came on it (a day with none is listed too)
+  const book = params.prices;
+  const byDay = new Map();
+  for (const b of bars5.filter((x) => x.time >= fromTime)) {
+    const d = dayKey(b.time);
+    const x = byDay.get(d);
+    if (!x) byDay.set(d, { day: d, open: b.open, high: b.high, low: b.low, close: b.close });
+    else Object.assign(x, { high: Math.max(x.high, b.high), low: Math.min(x.low, b.low), close: b.close });
+  }
+  const dayList = [...byDay.values()].map((x) => {
+    const list = entries.filter((e) => e.day === x.day);
+    const live = list.filter((e) => e.status !== 'removed');
+    return { ...x, changePts: round2(x.close - x.open), rangePts: round2(x.high - x.low), entries: list.map((e) => e.id), trades: live.length, net: round2(live.reduce((a, e) => a + e.net, 0)), realPrices: Boolean(book?.hasDay?.(x.day)) };
+  });
   const first = studyDays[0];
   const lastDay = dayKey(complete.at(-1).time);
   const candles = bars5.filter((b) => DAY(b.time) >= first - WARM_DAYS - 2).map(({ time, open, high, low, close }) => ({ time, open, high, low, close }));
@@ -208,6 +223,7 @@ export function runLab({ nifty1, stocks5 = null, params, base, add = [], from = 
     stats: breakdown(baseRun.trades, midTime),
     withAdd: sel ? { labels: cleanAdd.map((k) => CONDITION_BY_KEY.get(k).label), ...breakdown(sel.trades, midTime) } : null,
     entries,
+    dayList,
     addons: rows.slice(0, SHOW_ROWS).map(({ _skips, ...r }) => r),
     candles,
     rangeFrom: fromTime,
