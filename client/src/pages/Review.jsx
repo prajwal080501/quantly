@@ -401,6 +401,7 @@ function PatternsTab({ day }) {
                 {model ? 'Use the real prices' : 'Use the estimate instead'}
               </button>
             )}
+            {data.pricing.mode !== 'real' && <> Save them under Research &gt; Data &gt; Option prices.</>}
             {data.pricing.mode === 'real' && ' An entry whose contract was not saved cannot be priced and shows as skipped.'}
           </p>
         )}
