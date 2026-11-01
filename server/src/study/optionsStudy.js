@@ -211,7 +211,7 @@ export function fitStop(signal, entry, base = null) {
 }
 
 /** One trade at a time per technique, at most MAX_PER_DAY a day, a stop at least 0.8 ATR away and no more than MAX_STOP_ATR. */
-function tradesFor(signals, { c1, byTime, params }) {
+export function tradesFor(signals, { c1, byTime, params }) {
   const trades = [];
   let skippedWide = 0;
   let busyUntil = 0;

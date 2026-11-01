@@ -103,6 +103,7 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
   for (const d of [1, -1]) {
     const view = chart.views[d];
     const arrs = conds.map((c) => heldArray(chart, c, d, window));
+    const also = (combo.also || []).map((k) => CONDITION_BY_KEY.get(k)).filter(Boolean).map((c) => heldArray(chart, c, d, window)); // extra checks that must all hold on top of the rule
     const score = (i) => {
       let n = 0;
       for (const a of arrs) n += a[i];
@@ -111,7 +112,7 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
     let lastFire = -99;
     let before = from > 0 ? score(from - 1) >= need : false;
     for (let i = Math.max(from, 1); i < chart.bars.length; i++) {
-      const now = score(i) >= need;
+      const now = score(i) >= need && also.every((a) => a[i]);
       const fresh = now && !before;
       before = now;
       const a = chart.atr[i];
@@ -145,6 +146,12 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
     }
   }
   return out.sort((x, y) => x.i - y.i);
+}
+
+/** Whether one check held on bar i of the chart, as a call (d = 1) or a put (d = -1): a state on the bar, an event anywhere in the last `window` bars. */
+export function holdsAt(chart, key, d, i, window = DEFAULT_WINDOW) {
+  const cond = CONDITION_BY_KEY.get(key);
+  return Boolean(cond && usable(cond, chart.have) && heldArray(chart, cond, d, window)[i]);
 }
 
 /** Which checks of a combination held on bar i of the chart, as a call (d = 1) or a put (d = -1): a state on the bar, an event anywhere in the last `window` bars. */

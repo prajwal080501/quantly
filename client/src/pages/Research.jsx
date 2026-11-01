@@ -9,9 +9,11 @@ import { FinderStudy } from '../components/study/FinderStudy.jsx';
 import { HistoryData } from '../components/study/HistoryData.jsx';
 
 const Review = lazy(() => import('./Review.jsx'));
+const Lab = lazy(() => import('./Lab.jsx'));
 
 export const RESEARCH_TABS = [
   { value: 'review', label: 'Day review', icon: CalendarSearch, hint: 'Every call against what happened, and improve a combination' },
+  { value: 'lab', label: 'Combination Lab', icon: FlaskConical, hint: 'One combination over weeks: every entry, a chart, and the indicator that would skip each loss' },
   { value: 'options', label: 'Options study', icon: TrendingUp, hint: 'Replay past candles: which option entries pay' },
   { value: 'shares', label: 'Shares study', icon: FlaskConical, hint: 'Replay past candles: which share setups pay' },
   { value: 'finder', label: 'Finder', icon: Search, hint: 'Extra checks that lift a combination, and its best stop and profit' },
@@ -35,6 +37,11 @@ export default function Research() {
       {tab === 'review' && (
         <Suspense fallback={<Skeleton className="h-64 w-full" />}>
           <Review embedded />
+        </Suspense>
+      )}
+      {tab === 'lab' && (
+        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+          <Lab embedded />
         </Suspense>
       )}
       {tab === 'options' && <OptionsStudy />}
