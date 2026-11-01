@@ -18,6 +18,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
 const Account = lazy(() => import('./pages/Account.jsx'));
 const News = lazy(() => import('./pages/News.jsx'));
 const Research = lazy(() => import('./pages/Research.jsx'));
+const Lab = lazy(() => import('./pages/Lab.jsx'));
 
 function Protected() {
   const { user, token, loading } = useAuth();
@@ -96,6 +97,7 @@ export default function App() {
                 <Route path="options" element={<Options />} />
                 <Route path="news" element={<News />} />
                 <Route path="research" element={<Research />} />
+                <Route path="lab" element={<Lab />} />
                 <Route path="review" element={<ReviewRedirect />} />
                 <Route path="positions" element={<Positions />} />
                 <Route path="orders" element={<Orders />} />
