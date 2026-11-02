@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { AutoLog, AutoSettings, OptionSettings, Position, ScanIdea } from '../models/index.js';
 import { daysCsv, tradesCsv } from '../report/pnlCsv.js';
+import { pnlSummary } from '../report/pnlSummary.js';
 import { guideText } from '../guide/guide.js';
 import { buildDayReport } from '../report/dayReport.js';
 import { summarizeIdeas } from '../scanner/stats.js';
@@ -47,6 +48,15 @@ export function reportRoutes({ engine, market, review }) {
       track: summarizeIdeas(finished.map((i) => ({ ...i, openedAt: i.createdAt }))),
     });
     res.json({ day, text });
+  });
+
+  /** Profit and loss for the Profit & Loss screen: totals and the same trades grouped by day, week, month, weekday, hour and symbol. */
+  router.get('/pnl-summary', validate(pnlQuery.omit({ by: true }), 'query'), async (req, res) => {
+    const { from, to, segment } = req.valid;
+    const filter = { user: req.userId, status: 'CLOSED' };
+    if (segment !== 'all') filter.segment = segment;
+    if (from || to) filter.tradingDay = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+    res.json(pnlSummary(await Position.find(filter).sort({ closedAt: 1 }).limit(20000).lean()));
   });
 
   /** The profit and loss as a CSV file: every closed trade (or every day) between two dates. */
