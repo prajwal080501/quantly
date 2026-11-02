@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ExitTimeField, useExitTime } from '../study/ExitTimeField.jsx';
-import { ChevronDown, ClipboardCopy, FlaskConical, Play } from 'lucide-react';
+import { ChevronDown, ClipboardCopy, Eye, FlaskConical, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyText } from '../../lib/copyText.js';
 import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
@@ -15,6 +15,7 @@ import { Research } from '../study/Research.jsx';
 import { Switch } from './OptionsAutoCard.jsx';
 import { RealPricesSwitch } from '../study/RealPricesSwitch.jsx';
 import { INDEXES, indexOf, loadIndex, saveIndex } from '../../lib/indexes.js';
+import { EntrySheet } from '../EntrySheet.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -28,6 +29,7 @@ const SKIP_WORD = { trades: 'trade limit for the day', holding: 'already holding
 
 function Technique({ t, bot }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState(null);
   const v = verdict(t);
   const vsBot = bot && t.key !== 'bot' ? t.net - bot.net : null;
   return (
@@ -94,19 +96,26 @@ function Technique({ t, bot }) {
           )}
           {t.recent.length > 0 && (
             <div>
-              <div className="mb-1 font-semibold">Latest trades</div>
-              <ul className="divide-y divide-line">
+              <div className="mb-1 font-semibold">Latest {t.recent.length} trades</div>
+              <ul className="space-y-1.5">
                 {t.recent.map((r) => (
-                  <li key={`${r.entryTime}`} className="flex items-center justify-between gap-2 py-1.5">
-                    <span className="min-w-0 text-muted">
-                      <b className="text-fg">{istStamp(r.entryTime)}</b> {r.side} · index {formatPrice(r.entrySpot)} → {formatPrice(r.exitSpot)} · {EXIT_WORD[r.reason] || r.reason}
-                    </span>
-                    <span className={`num shrink-0 font-semibold ${pnlClass(r.net)}`}>{formatPnl(r.net)}</span>
+                  <li key={`${r.entryTime}${r.side}`}>
+                    <button type="button" onClick={() => setView(r)} className="flex w-full items-center justify-between gap-2 rounded-2xl border border-line px-3 py-2 text-left transition-colors hover:border-accent2" aria-label={`View the ${r.side === 'CE' ? 'call' : 'put'} of ${istStamp(r.entryTime)}`}>
+                      <span className="min-w-0">
+                        <span className="block text-xs"><b>{istStamp(r.entryTime)}</b> <span className={r.side === 'CE' ? 'text-up' : 'text-down'}>{r.side === 'CE' ? 'Call' : 'Put'}</span> · {EXIT_WORD[r.reason] || r.reason}</span>
+                        <span className="num block text-[11px] text-muted">index {formatPrice(r.entrySpot)} → {formatPrice(r.exitSpot)} · {r.minutes} min</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className={`num font-semibold ${pnlClass(r.net)}`}>{formatPnl(r.net)}</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-accent2-soft px-2 py-1 text-[11px] font-semibold text-accent2"><Eye className="h-3 w-3" /> View</span>
+                      </span>
+                    </button>
                   </li>
                 ))}
               </ul>
             </div>
           )}
+          {view && <EntrySheet trade={view} title={t.label} onClose={() => setView(null)} />}
         </div>
       )}
     </Card>

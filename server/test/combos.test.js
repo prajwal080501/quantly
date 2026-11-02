@@ -867,3 +867,16 @@ test('an options study that trades like the live bot reports what the live rules
   assert.ok([...perDay.values()].every((n) => n <= 2), 'at most 2 a day');
   assert.equal(old.params.live, false);
 });
+
+test('the trades a study lists carry what the View popup needs: the sell premium and, for a combination, which checks held with what each means', async () => {
+  const combos = normalizeCombos([{ name: 'Trend and RSI', conds: ['emaStack', 'rsiAbove50'] }]);
+  const r = await runOptionsStudy({ nifty1: minutes(14), params: { ...PARAMS, days: 10, lossLimit: 1500, maxLots: 2, combos, rank: false } });
+  const mine = r.techniques.find((t) => t.key === 'combo:trend-and-rsi');
+  assert.ok(mine.recent.length > 0, 'the tape gives trades');
+  for (const t of mine.recent) {
+    assert.equal(typeof t.exitPremium, 'number');
+    assert.ok(Array.isArray(t.why) && t.why.length === 2, 'both checks are listed');
+    assert.ok(t.why.every((w) => w.label && w.text && typeof w.held === 'boolean'));
+  }
+  assert.ok(mine.recent.length <= 20);
+});

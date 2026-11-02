@@ -1,18 +1,17 @@
 import { lazy, Suspense } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { CalendarSearch, Database, FlaskConical, ClipboardCopy, Search, TrendingUp } from 'lucide-react';
+import { Navigate, useSearchParams } from 'react-router-dom';
+import { Database, FlaskConical, ClipboardCopy, Search, TrendingUp } from 'lucide-react';
 import { Picker, Skeleton } from '../components/ui.jsx';
-import { DayReportButton } from '../components/DayReportButton.jsx';
-import { OptionsStudy } from '../components/options/OptionsStudy.jsx';
-import { SharesStudy } from '../components/study/SharesStudy.jsx';
-import { FinderStudy } from '../components/study/FinderStudy.jsx';
-import { HistoryData } from '../components/study/HistoryData.jsx';
 
-const Review = lazy(() => import('./Review.jsx'));
+// each tab loads only when it is opened, so the Research page itself opens fast
 const Lab = lazy(() => import('./Lab.jsx'));
+const OptionsStudy = lazy(() => import('../components/options/OptionsStudy.jsx').then((m) => ({ default: m.OptionsStudy })));
+const SharesStudy = lazy(() => import('../components/study/SharesStudy.jsx').then((m) => ({ default: m.SharesStudy })));
+const FinderStudy = lazy(() => import('../components/study/FinderStudy.jsx').then((m) => ({ default: m.FinderStudy })));
+const HistoryData = lazy(() => import('../components/study/HistoryData.jsx').then((m) => ({ default: m.HistoryData })));
+const DayReportButton = lazy(() => import('../components/DayReportButton.jsx').then((m) => ({ default: m.DayReportButton })));
 
 export const RESEARCH_TABS = [
-  { value: 'review', label: 'Day review', icon: CalendarSearch, hint: 'Every call against what happened, and improve a combination' },
   { value: 'lab', label: 'Combination Lab', icon: FlaskConical, hint: 'One combination over weeks: every entry, a chart, and the indicator that would skip each loss' },
   { value: 'options', label: 'Options study', icon: TrendingUp, hint: 'Replay past candles: which option entries pay' },
   { value: 'shares', label: 'Shares study', icon: FlaskConical, hint: 'Replay past candles: which share setups pay' },
@@ -21,34 +20,33 @@ export const RESEARCH_TABS = [
   { value: 'report', label: 'Day report', icon: ClipboardCopy, hint: 'Copy the day report to paste in the chat' },
 ];
 
-/** Everything for looking back and improving, in one place: day review, studies, the finder, saved data and the day report. */
+/** Everything for trying ideas, in one place: the Combination Lab, the studies, the finder, saved data and the day report. (Day review lives in Account.) */
 export default function Research() {
   const [params, setParams] = useSearchParams();
   const asked = params.get('tab');
-  const tab = RESEARCH_TABS.some((t) => t.value === asked) ? asked : 'review';
+  const tab = RESEARCH_TABS.some((t) => t.value === asked) ? asked : 'options';
   const setTab = (value) => {
     const next = new URLSearchParams(params);
     next.set('tab', value);
     setParams(next, { replace: true });
   };
+  if (asked === 'review') {
+    // the old address of Day review: it now lives in Account
+    const rest = new URLSearchParams(params);
+    rest.delete('tab');
+    return <Navigate to={`/review${rest.toString() ? `?${rest}` : ''}`} replace />;
+  }
   return (
     <div className="space-y-3">
       <Picker title="Research section" value={tab} onChange={setTab} options={RESEARCH_TABS} />
-      {tab === 'review' && (
-        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-          <Review embedded />
-        </Suspense>
-      )}
-      {tab === 'lab' && (
-        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-          <Lab embedded />
-        </Suspense>
-      )}
-      {tab === 'options' && <OptionsStudy />}
-      {tab === 'shares' && <SharesStudy />}
-      {tab === 'finder' && <FinderStudy />}
-      {tab === 'data' && <HistoryData />}
-      {tab === 'report' && <DayReportButton />}
+      <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+        {tab === 'lab' && <Lab embedded />}
+        {tab === 'options' && <OptionsStudy />}
+        {tab === 'shares' && <SharesStudy />}
+        {tab === 'finder' && <FinderStudy />}
+        {tab === 'data' && <HistoryData />}
+        {tab === 'report' && <DayReportButton />}
+      </Suspense>
     </div>
   );
 }

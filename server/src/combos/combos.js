@@ -201,7 +201,7 @@ export function heldConditions(chart, combo, d, i) {
       let held = false;
       if (cond.kind === 'state') held = holds(chart, cond, d, i);
       else for (let k = Math.max(0, i - window + 1); k <= i && !held; k++) held = holds(chart, cond, d, k);
-      return { key: cond.key, label: cond.label, held };
+      return { key: cond.key, label: cond.label, text: cond.text, held };
     });
 }
 

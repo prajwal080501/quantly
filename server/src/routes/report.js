@@ -1,13 +1,17 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
-import { AutoLog, AutoSettings, OptionSettings, ScanIdea } from '../models/index.js';
+import { AutoLog, AutoSettings, OptionSettings, Position, ScanIdea } from '../models/index.js';
+import { daysCsv, tradesCsv } from '../report/pnlCsv.js';
+import { guideText } from '../guide/guide.js';
 import { buildDayReport } from '../report/dayReport.js';
 import { summarizeIdeas } from '../scanner/stats.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { logger } from '../utils/logger.js';
 
 const query = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+const day10 = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const pnlQuery = z.object({ from: day10.optional(), to: day10.optional(), segment: z.enum(['all', 'EQ', 'OPT']).default('all'), by: z.enum(['trade', 'day']).default('trade') });
 
 /** One text report of a day, for copying into a chat. */
 export function reportRoutes({ engine, market, review }) {
@@ -43,6 +47,25 @@ export function reportRoutes({ engine, market, review }) {
       track: summarizeIdeas(finished.map((i) => ({ ...i, openedAt: i.createdAt }))),
     });
     res.json({ day, text });
+  });
+
+  /** The profit and loss as a CSV file: every closed trade (or every day) between two dates. */
+  router.get('/pnl.csv', validate(pnlQuery, 'query'), async (req, res) => {
+    const { from, to, segment, by } = req.valid;
+    const filter = { user: req.userId, status: 'CLOSED' };
+    if (segment !== 'all') filter.segment = segment;
+    if (from || to) filter.tradingDay = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+    const positions = await Position.find(filter).sort({ closedAt: 1 }).limit(20000).lean();
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="profit-and-loss-${by === 'day' ? 'by-day' : 'trades'}-${from ?? 'start'}-to-${to ?? 'today'}.csv"`);
+    res.send(`\uFEFF${by === 'day' ? daysCsv(positions) : tradesCsv(positions)}`);
+  });
+
+  /** The how-to-use guide as a Markdown file. */
+  router.get('/guide.md', (_req, res) => {
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="app-guide.md"');
+    res.send(guideText());
   });
 
   return router;

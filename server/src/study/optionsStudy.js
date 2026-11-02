@@ -5,7 +5,7 @@ import { round2 } from '../utils/money.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
 import { CONDITIONS, CONDITION_BY_KEY, buildChart, usable } from '../combos/conditions.js';
-import { comboSignals, singleCombo, missingData, describeCombo, comboFitsIndex } from '../combos/combos.js';
+import { comboSignals, singleCombo, missingData, describeCombo, comboFitsIndex, heldConditions } from '../combos/combos.js';
 import { verdictOf, halvesOf } from '../combos/verdict.js';
 import { runResearch } from './research.js';
 import { comboStopRule } from '../combos/combos.js';
@@ -124,6 +124,16 @@ export function scoreFloors(trades) {
     const wins = xs.filter((t) => t.net > 0).length;
     return { floor, trades: xs.length, winRate: xs.length ? Math.round((wins / xs.length) * 100) : null, net: round2(xs.reduce((s, t) => s + t.net, 0)) };
   });
+}
+
+const RECENT_SHOWN = 20;
+
+/** A trade as the View popup needs it: the premium it was sold at and, for one of your combinations, which of its checks held on the signal bar. */
+function explained(t, key, params, chart) {
+  const out = { ...t, exitPremium: round2(Math.max(0, t.entryPremium + t.gross / ((t.lots || 1) * (params.lotSize || 1)))) };
+  const combo = key.startsWith('combo:') ? studyCombos(params.combos, params.index).find((c) => `combo:${c.id}` === key) : null;
+  if (combo && t.bar != null) out.why = heldConditions(chart, combo, t.side === 'CE' ? 1 : -1, t.bar);
+  return out;
 }
 
 const lite = (xs) => {
@@ -381,7 +391,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
       skips,
       byScore: scoreFloors(trades),
       ...summary,
-      recent: [...trades].sort((a, b) => b.entryTime - a.entryTime).slice(0, 12),
+      recent: [...trades].sort((a, b) => b.entryTime - a.entryTime).slice(0, RECENT_SHOWN).map((t) => explained(t, key, params, chart)),
     });
     await yieldTurn();
   }
