@@ -12,17 +12,17 @@ Paper money only. Nothing here places a real order. Not investment advice.
 | Tab | What it is for |
 |---|---|
 | Stocks | Your watchlist, the scanner ideas and today's strip. Tap a stock for its chart, order sheet and signal. |
-| Research | Everything for looking back and improving: Combination Lab, Options study, Shares study, Finder, Saved data, Day report. |
+| Scanner | The share scanner and the auto share trader: today's ideas, what was bought, and how each setup has done. |
 | Options | Nifty and Sensex options: the live chart read, your auto trader, open trades and the log. |
 | News | The morning news calls against what the stocks did. |
 | Trades | Open positions, with live profit and loss. |
-| Account | Your money, the rules (Limits, Entries), Day review, Studies, P&L charts and the guide download. |
+| Account | Your money, the rules (Limits, Entries), Research (studies, Combination Lab, Finder, saved data), Day review, the P&L charts and this guide. |
 
 ## 2. A normal day
 
 1. Before 09:15: open the Options tab and check the auto trader is ON and your rules (Account > Limits and Entries) are what you want.
 2. During the day: you can leave it. Entries and exits are automatic.
-3. After 15:30: Account > Day review (every call against what happened), and Research > Day report (copy it to paste in the chat).
+3. After 15:30: Account > Day review (every call against what happened), and Account > Research > Day report (copy it to paste in the chat).
 4. Once a week: run a study (section 5) and look at what paid and what did not.
 
 ## 3. How an options entry happens
@@ -50,7 +50,7 @@ Paper money only. Nothing here places a real order. Not investment advice.
 
 A study replays past candles through your rules. It changes nothing live.
 
-**To run the Options study:** Research > Options study.
+**To run the Options study:** Account > Research > Options study.
 1. Pick Nifty or Sensex.
 2. Pick the days. With real prices on, "10d" means the newest 10 days that have saved option prices.
 3. Keep "Use the real option prices" on. Without saved prices it falls back to an estimate and says so.
@@ -79,7 +79,7 @@ Account > Entries > My combinations > New combination.
 4. **Event window:** a "cross" or a "break" counts for this many bars (1 to 6, default 3).
 5. **Index:** Nifty, Sensex or both. **Side:** calls and puts, calls only, or puts only. A combination built from bullish checks should usually be calls only: its put twin is the mirror image and can buy puts on a rising day.
 6. **Stop and exits:** its own stop, ladder, trail and break-even, or the shared ones.
-7. Save, then test it in Research > Combination Lab before you switch it on.
+7. Save, then test it in Account > Research > Combination Lab before you switch it on.
 
 **Good building rules**
 - Use one entry check (a break or a cross) plus two or three filters (trend, breadth, time of day).

@@ -24,13 +24,13 @@ export function GuideTile() {
   async function get() {
     setBusy(true);
     try {
-      await downloadFile('/report/guide.md', 'app-guide.md');
-      toast.success('App guide saved. Open it in any notes or text app.');
+      await downloadFile('/report/guide.pdf', 'nifty-paper-trader-guide.pdf');
+      toast.success('App guide saved as a PDF with screenshots.');
     } catch (e) {
       toast.error(e.message || 'Could not download the guide');
     } finally {
       setBusy(false);
     }
   }
-  return <PopupTile icon={BookOpen} label={busy ? 'Saving…' : 'App guide'} hint="How to use, download" onClick={busy ? () => {} : get} />;
+  return <PopupTile icon={BookOpen} label={busy ? 'Saving…' : 'App guide'} hint="PDF with screenshots" onClick={busy ? () => {} : get} />;
 }
