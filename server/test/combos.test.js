@@ -754,3 +754,116 @@ test('a study also tries combinations that are off for live trading, runs them t
   const n = await runOptionsStudy({ nifty1: minutes(14), params: { ...base, combos: sensexOnly, index: 'NIFTY' } });
   assert.ok(!n.techniques.some((t) => t.combo));
 });
+
+// ---------- trend-day and filter checks added 2 Nov ----------
+
+const NEW_CHECKS = ['openDrive', 'orBreakEvent', 'yHighBreak', 'tf15Trend', 'adxRising', 'trendingNotChoppy', 'squeezeFire', 'nr7Break', 'roomLeft', 'vwapHold', 'volDryBreak', 'notMidday', 'firstHour'];
+
+test('the trend-day and filter checks exist, are listed, never throw, and the ones with a direction favour the side the tape moves', () => {
+  for (const key of NEW_CHECKS) assert.ok(by(key), key);
+  const bars = tape(3, 10);
+  const flow = flowOf(bars);
+  const up = buildChart(bars, { flow });
+  const down = buildChart(tape(-3, 10), { flow: flowOf(tape(-3, 10)) });
+  const tiny = buildChart(tape(1, 1).slice(0, 5));
+  for (const key of NEW_CHECKS) {
+    for (const d of [1, -1]) assert.doesNotThrow(() => count(up, by(key), d), key);
+    assert.doesNotThrow(() => holds(tiny, by(key), 1, 4), key);
+  }
+  for (const key of ['tf15Trend', 'adxRising']) {
+    assert.ok(count(up, by(key), 1) > 3 * count(up, by(key), -1) + 10, `${key} on a rising tape`);
+    assert.ok(count(down, by(key), -1) > 3 * count(down, by(key), 1) + 10, `${key} on a falling tape`);
+  }
+  assert.ok(count(up, by('trendingNotChoppy'), 1) > 20, 'a steady drift is not choppy');
+});
+
+test('open drive fires on a strong one-way first half hour for calls only, room-left needs five earlier days, midday is excluded by notMidday', () => {
+  const bars = [];
+  let p = 24000;
+  for (let d = 0; d < 7; d++) {
+    for (let k = 0; k < 75; k++) {
+      const drive = d === 6 && k < 12 ? 14 : 0; // the last day climbs hard from the open
+      const o = p;
+      const c = o + drive + (k % 2 ? 2 : -2);
+      bars.push({ time: OPEN + d * 86400 + k * 300, open: o, high: Math.max(o, c) + 1, low: Math.min(o, c) - 1, close: c, volume: 1000 });
+      p = c;
+    }
+  }
+  const chart = buildChart(bars, { flow: flowOf(bars) });
+  const lastDay = 6 * 75;
+  let calls = 0;
+  let puts = 0;
+  for (let i = lastDay; i < lastDay + 75; i++) {
+    if (holds(chart, by('openDrive'), 1, i)) calls += 1;
+    if (holds(chart, by('openDrive'), -1, i)) puts += 1;
+  }
+  assert.ok(calls > 0 && puts === 0, `calls ${calls}, puts ${puts}`);
+  assert.equal(holds(chart, by('roomLeft'), 1, 3), false, 'unknown before five earlier days');
+  const midday = bars.findIndex((b) => b.time === OPEN + 0 * 86400 + 40 * 300); // 12:35
+  assert.equal(holds(chart, by('notMidday'), 1, midday), false);
+  assert.equal(holds(chart, by('notMidday'), 1, 5), true);
+  assert.equal(holds(chart, by('firstHour'), 1, lastDay + 8), true);
+});
+
+// ---------- the study follows the live rules ----------
+
+import { liveSkip, scoreFloors, tradesFor, COOLDOWN_AFTER_LOSS_MIN } from '../src/study/optionsStudy.js';
+import { firstStudyDay } from '../src/study/priceBook.js';
+
+test('with real prices, the days asked for count back from the newest saved day instead of using everything saved', () => {
+  const saved = Array.from({ length: 17 }, (_, i) => `2026-10-${String(5 + i).padStart(2, '0')}`);
+  assert.equal(firstStudyDay(saved, { days: 10 }), saved[7], '10 days = the newest 10 saved days');
+  assert.equal(firstStudyDay(saved, { days: 30 }), saved[0], 'more than saved = all saved');
+  assert.equal(firstStudyDay(saved, {}), saved[0]);
+  assert.equal(firstStudyDay(saved, { days: 10, from: '2026-10-08' }), '2026-10-08', 'a date range wins over a day count');
+  assert.equal(firstStudyDay([], { days: 10 }), null);
+});
+
+test('the live rules skip a signal while that side is open, during the pause after a loss or the same side, past the day cap and after the daily loss limit', () => {
+  const t0 = OPEN + 3600;
+  const trade = (entry, exit, side, net) => ({ entryTime: entry, exitTime: exit, side, net });
+  const rules = { maxPerDay: 2, dailyLoss: 3000 };
+  assert.equal(liveSkip({ time: t0 + 600, side: 'CE' }, [trade(t0, t0 + 3600, 'CE', 100)], rules), 'holding');
+  assert.equal(liveSkip({ time: t0 + 600, side: 'PE' }, [trade(t0, t0 + 3600, 'CE', 100)], rules), null, 'a put may open while a call is open');
+  assert.equal(liveSkip({ time: t0 + 1200, side: 'PE' }, [trade(t0, t0 + 600, 'CE', -500)], rules), 'cooling', 'pause after a loss');
+  assert.equal(liveSkip({ time: t0 + 600 + (COOLDOWN_AFTER_LOSS_MIN + 1) * 60, side: 'PE' }, [trade(t0, t0 + 600, 'CE', -500)], rules), null);
+  assert.equal(liveSkip({ time: t0 + 1200, side: 'CE' }, [trade(t0, t0 + 600, 'CE', 500)], rules), 'cooling', 'same side again too soon');
+  assert.equal(liveSkip({ time: t0 + 9000, side: 'PE' }, [trade(t0, t0 + 100, 'CE', 5), trade(t0 + 200, t0 + 300, 'PE', 5)], rules), 'trades');
+  assert.equal(liveSkip({ time: t0 + 9000, side: 'CE' }, [trade(t0, t0 + 100, 'PE', -3200)], rules), 'loss limit');
+});
+
+test('score floors count only trades that reached the score and always show every trade under any score', () => {
+  const rows = scoreFloors([{ net: 100, score: 85 }, { net: -50, score: 30 }, { net: 10 }]);
+  assert.deepEqual(rows.map((r) => [r.floor, r.trades]), [[0, 3], [40, 1], [50, 1], [60, 1], [70, 1], [80, 1]]);
+  assert.equal(rows[0].net, 60);
+  assert.equal(rows[5].winRate, 100);
+});
+
+test('a combination locked to calls gives no put signal, and the lock is kept when cleaned', () => {
+  const up = buildChart(tape(-3, 6), { flow: flowOf(tape(-3, 6)) });
+  const both = { id: 'x', name: 'x', conds: ['bullBar'], need: 1, window: 3 };
+  assert.ok(comboSignals(up, both, { windows: false }).some((s) => s.side === 'PE'));
+  assert.equal(comboSignals(up, { ...both, side: 'CE' }, { windows: false }).filter((s) => s.side === 'PE').length, 0);
+  assert.equal(normalizeCombo({ ...both, side: 'PE' }).side, 'PE');
+  assert.equal(normalizeCombo({ ...both, side: 'xx' }).side, undefined);
+});
+
+test('an options study that trades like the live bot reports what the live rules skipped, the score floors, and never takes more than the daily cap', async () => {
+  const combos = normalizeCombos([{ name: 'Trend and RSI', conds: ['emaStack', 'rsiAbove50'] }]);
+  const base = { ...PARAMS, days: 10, lossLimit: 1500, maxLots: 2, combos, rank: false };
+  const liveRun = await runOptionsStudy({ nifty1: minutes(14), params: { ...base, live: true, maxTrades: 2, dailyLoss: 3000 } });
+  const old = await runOptionsStudy({ nifty1: minutes(14), params: { ...base } });
+  assert.equal(liveRun.params.live, true);
+  assert.equal(liveRun.params.maxPerDay, 2);
+  for (const t of liveRun.techniques) {
+    assert.ok(Array.isArray(t.byScore) && t.byScore.length === 6, t.key);
+    assert.ok(t.skips && typeof t.skips === 'object', t.key);
+  }
+  const perDay = new Map();
+  for (const tr of liveRun.techniques.find((t) => t.key === 'combo:trend-and-rsi')?.recent ?? []) {
+    const day = Math.floor((tr.entryTime + 19800) / 86400);
+    perDay.set(day, (perDay.get(day) || 0) + 1);
+  }
+  assert.ok([...perDay.values()].every((n) => n <= 2), 'at most 2 a day');
+  assert.equal(old.params.live, false);
+});

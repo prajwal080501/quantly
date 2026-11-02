@@ -112,6 +112,20 @@ export function breadthStudy(bars5, breadth, fromTime) {
   return rows;
 }
 
+const SCORE_FLOORS_SHOWN = [0, 40, 50, 60, 70, 80];
+
+/**
+ * What a minimum chart score would have done to a set of trades: for each floor, the trades that scored at least that, their win rate and net.
+ * Floor 0 is every trade; a trade whose score was not known counts only there.
+ */
+export function scoreFloors(trades) {
+  return SCORE_FLOORS_SHOWN.map((floor) => {
+    const xs = trades.filter((t) => (floor === 0 ? true : t.score != null && t.score >= floor));
+    const wins = xs.filter((t) => t.net > 0).length;
+    return { floor, trades: xs.length, winRate: xs.length ? Math.round((wins / xs.length) * 100) : null, net: round2(xs.reduce((s, t) => s + t.net, 0)) };
+  });
+}
+
 const lite = (xs) => {
   const m = summarize(xs);
   return { trades: m.trades, winRate: m.winRate, net: m.net, avgNet: m.avgNet, avgWin: m.avgWin, avgLoss: m.avgLoss };
@@ -216,22 +230,60 @@ export function fitStop(signal, entry, base = null) {
   return { stop, wide: d * (entry - stop) > MAX_STOP_ATR * signal.atr };
 }
 
-/** One trade at a time per technique, at most MAX_PER_DAY a day, a stop at least 0.8 ATR away and no more than MAX_STOP_ATR. */
+export const LIVE_DELAY_SEC = 60;
+export const COOLDOWN_AFTER_LOSS_MIN = 20; // as the live trader: no new trade for this long after a trade closed at a loss
+export const COOLDOWN_SAME_SIDE_MIN = 15; // and not the same side again this soon after one closed
+
+/**
+ * Why the live rules would not take a signal now, or null when they would. `trades` are the ones already taken (all days, oldest first).
+ * The same checks as the live options trader: one call and one put open at a time, the pauses after a loss and after the same side, the trades a day and the daily loss limit.
+ */
+export function liveSkip(s, trades, { maxPerDay, dailyLoss = 0 }) {
+  const day = dayKey(s.time);
+  const today = trades.filter((t) => dayKey(t.entryTime) === day);
+  if (today.length >= maxPerDay) return 'trades';
+  if (trades.some((t) => t.side === s.side && t.exitTime > s.time)) return 'holding';
+  if (dailyLoss > 0 && today.filter((t) => t.exitTime <= s.time).reduce((sum, t) => sum + t.net, 0) <= -dailyLoss) return 'loss limit';
+  const last = today.filter((t) => t.exitTime <= s.time).sort((a, b) => b.exitTime - a.exitTime)[0];
+  if (last) {
+    const mins = (s.time - last.exitTime) / 60;
+    if (last.net < 0 && mins < COOLDOWN_AFTER_LOSS_MIN) return 'cooling';
+    if (last.side === s.side && mins < COOLDOWN_SAME_SIDE_MIN) return 'cooling';
+  }
+  return null;
+}
+
+/**
+ * The trades a list of signals would have made. By default one trade at a time and `params.maxTrades` (3 if not given) a day.
+ * With `params.live` the live trader's own rules are replayed (see liveSkip), and the skips are counted by reason in `skips`.
+ * A stop at least 0.8 ATR away and no more than MAX_STOP_ATR either way.
+ */
 export function tradesFor(signals, { c1, byTime, params }) {
   const trades = [];
+  const skips = {};
   let skippedWide = 0;
   let busyUntil = 0;
   const perDay = new Map();
+  const live = Boolean(params.live);
+  const cap = params.maxTrades ?? MAX_PER_DAY;
   for (const s of [...signals].sort((a, b) => a.time - b.time)) {
     const day = dayKey(s.time);
-    if (s.time < busyUntil || (perDay.get(day) || 0) >= MAX_PER_DAY) continue;
-    const entry = byTime.get(s.time) != null ? c1[byTime.get(s.time)].open : s.close;
+    if (live) {
+      const why = liveSkip(s, trades, { maxPerDay: cap, dailyLoss: params.dailyLoss ?? 0 });
+      if (why) {
+        skips[why] = (skips[why] || 0) + 1;
+        continue;
+      }
+    } else if (s.time < busyUntil || (perDay.get(day) || 0) >= cap) continue;
+    // live buys a little after the 5-minute bar closes (the broker's candles refresh every 30 seconds and it looks every 15): one minute later here
+    const at = live && byTime.has(s.time + LIVE_DELAY_SEC) ? s.time + LIVE_DELAY_SEC : s.time;
+    const entry = byTime.get(at) != null ? c1[byTime.get(at)].open : s.close;
     const { stop, wide } = fitStop(s, entry, params.stopRule);
     if (wide) {
       skippedWide += 1;
       continue;
     }
-    const trade = simulateTrade({ c1, byTime, signal: { ...s, stop }, params });
+    const trade = simulateTrade({ c1, byTime, signal: { ...s, time: at, stop }, params });
     if (trade?.skipped) {
       skippedWide += 1; // the loss at its stop is more than the loss limit even for one lot
       continue;
@@ -241,7 +293,7 @@ export function tradesFor(signals, { c1, byTime, params }) {
     perDay.set(day, (perDay.get(day) || 0) + 1);
     busyUntil = trade.exitTime;
   }
-  return { trades, skippedWide };
+  return { trades, skippedWide, skips };
 }
 
 /**
@@ -311,8 +363,10 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   onProgress('Trading every signal on paper');
   const techniques = [];
   let botRun = null;
-  for (const [key, signals] of Object.entries(groups)) {
-    const { trades, skippedWide } = tradesFor(signals, { c1: complete, byTime, params });
+  for (const [key, rawSignals] of Object.entries(groups)) {
+    // every signal carries the live chart score of its side at that close, so each row can be cut by a minimum score
+    const signals = rawSignals.map((s) => (s.score != null ? s : { ...s, score: bot.scores.get(s.i)?.[s.side] }));
+    const { trades, skippedWide, skips } = tradesFor(signals, { c1: complete, byTime, params });
     if (key === BOT_KEY) botRun = { trades };
     const summary = summarize(trades);
     const info = mine[key] || LABELS[key];
@@ -324,6 +378,8 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
       halves: halvesOf(trades, midTime),
       signals: signals.length,
       skippedWide,
+      skips,
+      byScore: scoreFloors(trades),
       ...summary,
       recent: [...trades].sort((a, b) => b.entryTime - a.entryTime).slice(0, 12),
     });
@@ -339,7 +395,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   return {
     generatedAt: new Date().toISOString(),
     period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length },
-    params: { index: params.index ?? 'NIFTY', days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY, stopRule: params.stopRule ?? null, trail: params.trail ?? null, breakEven: params.breakEven ?? 0 },
+    params: { index: params.index ?? 'NIFTY', days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: params.maxTrades ?? MAX_PER_DAY, live: Boolean(params.live), stopRule: params.stopRule ?? null, trail: params.trail ?? null, breakEven: params.breakEven ?? 0 },
     haveBreadth: Boolean(breadth),
     haveFlow: Boolean(flow),
     botBreakdown: botBreakdown(botTrades),

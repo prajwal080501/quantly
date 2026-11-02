@@ -24,6 +24,8 @@ const DAYS = [
   { value: 62, label: '3mo' },
 ];
 
+const SKIP_WORD = { trades: 'trade limit for the day', holding: 'already holding that side', 'loss limit': 'daily loss limit reached', cooling: 'pause after a trade' };
+
 function Technique({ t, bot }) {
   const [open, setOpen] = useState(false);
   const v = verdict(t);
@@ -62,6 +64,25 @@ function Technique({ t, bot }) {
           <p className="text-muted">
             {t.signals} signals · {t.skippedWide} skipped because the stop was too far · ended by {Object.entries(t.byExit).map(([k, n]) => `${EXIT_WORD[k] || k} ${n}`).join(', ') || '–'}
           </p>
+          {t.skips && Object.keys(t.skips).length > 0 && (
+            <p className="text-muted">
+              Live rules skipped {Object.entries(t.skips).map(([k, n]) => `${n} (${SKIP_WORD[k] || k})`).join(', ')}.
+            </p>
+          )}
+          {t.byScore && t.byScore.some((b) => b.floor > 0 && b.trades > 0) && (
+            <div>
+              <div className="mb-1 font-semibold">If a minimum chart score was needed</div>
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                {t.byScore.map((b) => (
+                  <div key={b.floor} className="rounded-lg bg-surface-2 p-1.5 text-center">
+                    <div className="text-[10px] text-muted">{b.floor === 0 ? 'Any score' : `${b.floor}+`}</div>
+                    <div className={`num text-xs font-bold ${pnlClass(b.net)}`}>{formatPnl(b.net)}</div>
+                    <div className="num text-[10px] text-muted">{b.trades} · {b.winRate ?? '–'}%</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {hourRows(t).length > 0 && (
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {hourRows(t).map((h) => (
@@ -187,7 +208,9 @@ export function OptionsStudy() {
   const [pairFirst, setPairFirst] = useState('');
   const [finder, setFinder] = useState(false);
   const [research, setResearch] = useState(false);
-  const [realPrices, setRealPrices] = useState(false);
+  const [realPrices, setRealPrices] = useState(true);
+  const [live, setLive] = useState(true);
+  const [maxTrades, setMaxTrades] = useState(0); // 0 = the Account setting
   const { state, error, running, run } = useStudy('options');
   const time = useExitTime('options');
   const targetValue = Number(target);
@@ -236,11 +259,21 @@ export function OptionsStudy() {
           <Switch on={research && !finderOn} disabled={finderOn} label="Research the stop and profit ladder" onClick={() => setResearch((v) => !v)} />
         </div>
         <RealPricesSwitch on={realPrices} setOn={setRealPrices} />
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Trade like the live bot.</b> One call and one put at a time, a pause after a loss and after the same side, the daily loss limit, and a buy one minute after the signal bar. Off gives the old one-trade-at-a-time study.
+          </p>
+          <Switch on={live} label="Trade like the live bot" onClick={() => setLive((v) => !v)} />
+        </div>
+        <div className="space-y-1">
+          <p className="text-[11px] leading-snug text-muted"><b className="text-fg">Trades a day.</b> The most trades one day may take in this study.</p>
+          <Segmented className="w-full" size="sm" value={maxTrades} onChange={setMaxTrades} options={[{ value: 0, label: 'My setting' }, { value: 3, label: '3' }, { value: 5, label: '5' }, { value: 10, label: '10' }]} />
+        </div>
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Research, Data tab), so download them first.</p>}
         <div className="flex justify-end">
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index, realPrices })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index, realPrices, live, ...(maxTrades ? { maxTrades } : {}) })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : finderOn ? 'Run finder' : 'Run study'}
           </button>
         </div>
