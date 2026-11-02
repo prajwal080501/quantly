@@ -16,7 +16,7 @@ Paper money only. Nothing here places a real order. Not investment advice.
 | Options | Nifty and Sensex options: the live chart read, your auto trader, open trades and the log. |
 | News | The morning news calls against what the stocks did. |
 | Trades | Open positions, with live profit and loss. |
-| Account | Your money, the rules (Limits, Entries), Day review, Studies, P&L and guide downloads. |
+| Account | Your money, the rules (Limits, Entries), Day review, Studies, P&L charts and the guide download. |
 
 ## 2. A normal day
 
@@ -98,9 +98,9 @@ Account > Entries > My combinations > New combination.
 
 The chart score is out of 100 for a call and for a put, from about 15 signs (trends, EMAs, VWAP side, ADX, RSI, MACD, key levels, breadth, candle, and so on). A high score means many signs agree. It is not a promise. Patterns and combinations can have a minimum score (Account > Entries); it is off by default.
 
-## 9. Downloads (Account)
+## 9. Profit and loss and the guide (Account)
 
-- **P&L download:** every closed trade, or each day, between two dates, as a CSV for Excel or Google Sheets.
+- **P&L tile:** your result with charts and tables: bars for each day, week or month, a running total, and tables by weekday, hour and symbol, for 7, 30 or 90 days or all. Shares and options are kept apart.
 - **App guide:** this file.
 
 ## 10. Honest limits

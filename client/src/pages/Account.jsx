@@ -15,7 +15,7 @@ import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits, StopPlacement, Switch } from '../components/options/OptionsAutoCard.jsx';
 import { TrailStop } from '../components/options/TrailStop.jsx';
 import { EntryChoices } from '../components/study/ReportsStudies.jsx';
-import { DayReviewTile, GuideTile, PnlDownload } from '../components/AccountExports.jsx';
+import { DayReviewTile, GuideTile } from '../components/AccountExports.jsx';
 
 function Row({ label, value, className = '' }) {
   return (
@@ -379,7 +379,6 @@ export default function Account() {
         <DayReviewTile />
         <TradingRules />
         <EntryChoices />
-        <PnlDownload />
         <GuideTile />
       </div>
 

@@ -33,3 +33,22 @@ test('the guide lists every check of the app, so it never drifts, and covers the
   for (const c of CONDITIONS) assert.ok(g.includes(`**${c.label}**`), c.label);
   for (const h of ['## 5. Studies', '## 6. Making a combination', 'View button', 'P&L download', 'Open drive']) assert.ok(g.includes(h), h);
 });
+
+test('the P&L summary groups trades by day, week and month, keeps a running total and finds the worst drawdown', async () => {
+  const { pnlSummary } = await import('../src/report/pnlSummary.js');
+  const s = pnlSummary([
+    closed({ tradingDay: '2026-10-29', closedAt: new Date('2026-10-29T05:00:00Z'), openedAt: new Date('2026-10-29T04:00:00Z'), realizedPnl: 1000, charges: 0 }),
+    closed({ tradingDay: '2026-10-30', closedAt: new Date('2026-10-30T05:00:00Z'), openedAt: new Date('2026-10-30T04:00:00Z'), realizedPnl: -1500, charges: 0 }),
+    closed({ tradingDay: '2026-11-02', closedAt: new Date('2026-11-02T05:00:00Z'), realizedPnl: 400, charges: 0 }),
+  ]);
+  assert.equal(s.totals.net, -100);
+  assert.equal(s.totals.winRate, 67);
+  assert.equal(s.totals.maxDrawdown, 1500);
+  assert.deepEqual(s.cumulative.map((c) => c.total), [1000, -500, -100]);
+  assert.equal(s.periods.day.length, 3);
+  assert.equal(s.periods.week.length, 2, '29-30 Oct and 2 Nov are different weeks');
+  assert.equal(s.periods.month.length, 2);
+  assert.equal(s.periods.month[0].label, 'Oct 2026');
+  assert.equal(s.byWeekday.find((w) => w.label === 'Thu').net, 1000);
+  assert.equal(pnlSummary([]).totals.trades, 0);
+});
