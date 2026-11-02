@@ -110,6 +110,14 @@ export function OptionsEntries({ data, reload }) {
           </p>
           <Switch on={s.comboEntries} disabled={busy} label="My combinations" onClick={() => save({ comboEntries: !s.comboEntries })} />
         </div>
+        {s.comboEntries && (
+          <div className="space-y-1">
+            <p className="text-[11px] leading-snug text-muted">
+              <b className="text-fg">Combination score.</b> Buy a combination only when the chart's score for that side is at least this. Off means the score is only shown, never used to skip.
+            </p>
+            <Segmented className="w-full" size="sm" value={s.comboMinScore ?? 0} onChange={(v) => save({ comboMinScore: v })} options={[{ value: 0, label: 'Off' }, { value: 50, label: '50+' }, { value: 60, label: '60+' }, { value: 70, label: '70+' }]} />
+          </div>
+        )}
         <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
       </div>
 

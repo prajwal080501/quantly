@@ -21,6 +21,7 @@ const patch = z
     dailyLossPct: z.coerce.number().min(2).max(30),
     patternEntries: z.boolean(),
     patternMinScore: z.coerce.number().min(0).max(95),
+    comboMinScore: z.coerce.number().min(0).max(95),
     indexes: z.array(z.enum(INDEX_KEYS)).min(1),
     mirror: z.boolean(),
     patternStopMode: z.enum(['chart', 'cap', 'atr', 'fixed']),
@@ -54,7 +55,7 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100 };
+    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100 };
     return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), sensexRules: await loadRules(userId, 'OPT', { index: 'SENSEX' }), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
