@@ -54,3 +54,27 @@ export async function api(path, { method = 'GET', body, signal } = {}) {
 }
 
 export const API_BASE = BASE;
+
+/** Downloads a file the server makes (a CSV, the guide) with the login, and hands it to the browser as a save. */
+export async function downloadFile(path, fallbackName) {
+  const token = tokenStore.get();
+  let res;
+  try {
+    res = await fetch(`${BASE}/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch {
+    throw new ApiError(0, 'NETWORK', 'Cannot reach the server. Check your connection.');
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, data?.error?.code || 'ERROR', data?.error?.message || `Download failed (${res.status})`);
+  }
+  const named = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1];
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = named || fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}

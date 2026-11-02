@@ -7,6 +7,16 @@ import { unpackOptionCandles } from '../market/optionHistory.js';
 
 const keyOf = (expiry, strike, type) => `${expiry}|${strike}|${type}`;
 
+/**
+ * The first day of a study that uses the saved real prices. `saved` is the saved days, oldest first. The days asked for count back from the
+ * newest saved day (10 = the last 10 saved days); a first date asked for wins when it is later; with neither, everything saved.
+ */
+export function firstStudyDay(saved, { days = null, from = null } = {}) {
+  if (!saved.length) return null;
+  const byCount = days && !from ? saved.at(-Math.min(days, saved.length)) : null;
+  return [saved[0], from, byCount].filter(Boolean).sort().at(-1);
+}
+
 export class PriceBook {
   /** @param byDay  Map day -> Map(`${expiry}|${strike}|${type}` -> Map(time -> candle)) */
   constructor(byDay = new Map()) {

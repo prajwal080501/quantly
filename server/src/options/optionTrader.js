@@ -252,7 +252,8 @@ export class OptionTrader {
 
   /**
    * Buy when one of the user's own combinations (Account > Entries) became true on the 5-minute bar that has just closed. Handled like a
-   * pattern: its own stop level, the same limits and lots. The 50-stock breadth and volume come from the live candles of the scanner.
+   * pattern: its own stop level, the same limits and lots, and (with a combination score set) the chart score of its side must reach it.
+   * The 50-stock breadth and volume come from the live candles of the scanner.
    */
   async considerCombos(settings, read) {
     const combos = normalizeCombos(settings.combos).filter((c) => c.on && comboFitsIndex(c, read?.index ?? DEFAULT_INDEX));
@@ -264,7 +265,7 @@ export class OptionTrader {
     const chart = this.#comboChart(read.index ?? DEFAULT_INDEX, bars);
     const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }));
     const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
-    return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`);
+    return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`, { minScore: settings.comboMinScore ?? 0 });
   }
 
   /** An index chart with the 50 stocks' breadth and traded value from the scanner's live candles, rebuilt once per 5-minute bar. */

@@ -19,6 +19,7 @@ const Account = lazy(() => import('./pages/Account.jsx'));
 const News = lazy(() => import('./pages/News.jsx'));
 const Research = lazy(() => import('./pages/Research.jsx'));
 const Lab = lazy(() => import('./pages/Lab.jsx'));
+const Review = lazy(() => import('./pages/Review.jsx'));
 
 function Protected() {
   const { user, token, loading } = useAuth();
@@ -68,14 +69,6 @@ class CrashCatcher extends Component {
   }
 }
 
-/** The old Review address keeps working: it opens the Day review tab with the same day and stock. */
-function ReviewRedirect() {
-  const { search } = useLocation();
-  const p = new URLSearchParams(search);
-  p.set('tab', 'review');
-  return <Navigate to={`/research?${p}`} replace />;
-}
-
 function Guarded({ children }) {
   return <CrashCatcher key={useLocation().pathname}>{children}</CrashCatcher>;
 }
@@ -98,7 +91,7 @@ export default function App() {
                 <Route path="news" element={<News />} />
                 <Route path="research" element={<Research />} />
                 <Route path="lab" element={<Lab />} />
-                <Route path="review" element={<ReviewRedirect />} />
+                <Route path="review" element={<Review />} />
                 <Route path="positions" element={<Positions />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="dashboard" element={<Dashboard />} />

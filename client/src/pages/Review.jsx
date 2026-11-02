@@ -717,9 +717,14 @@ export default function Review({ embedded = false }) {
     <div className="space-y-3">
       {!embedded && (
         <div className="flex items-center justify-between gap-2">
-          <h1 className="text-lg font-bold">
-            Calls <span className="text-accent2">vs results</span>
-          </h1>
+          <div className="flex items-center gap-2">
+            <Link to="/account" aria-label="Back to Account" className="btn btn-secondary !p-2">
+              <ChevronLeft className="h-4 w-4" />
+            </Link>
+            <h1 className="text-lg font-bold">
+              Day review <span className="text-accent2">calls vs results</span>
+            </h1>
+          </div>
           <Link to="/news" className="btn btn-secondary btn-sm">
             News
           </Link>

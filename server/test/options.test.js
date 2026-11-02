@@ -558,6 +558,30 @@ async function comboOnce() {
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 }
 
+test('with a combination score set, a combination is bought only when the chart score of its side reaches it; off, the score is ignored', async () => {
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    const u = await registerUser(app);
+    const uid = u.user.id || u.user._id;
+    const combos = normalizeCombos([{ name: 'Break and trend', conds: ['p_breakout', 'aboveEma20'] }]);
+    const s = (await OptionSettings.create({ user: uid, enabled: true, combos, comboMinScore: 70 })).toObject();
+    const scored = (score, n) => ({ ...breakoutRead(20000, MIDMORNING() + n * 300000), ce: { score }, pe: { score: 10 } });
+    assert.match((await optionTrader.considerCombos(s, scored(22, 1))).skipped, /is 22, under the 70/);
+    const skip = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'SKIPPED', reason: /under the 70/ }).lean();
+    assert.ok(skip, 'the skip is logged with its reason');
+    const r = await optionTrader.considerCombos(s, scored(80, 2));
+    assert.ok(r.order, r.skipped);
+    assert.equal((await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean()).score, 80);
+    await api().post('/api/positions/exit-all').set(u.auth).expect(200);
+    const saved = (await api().put('/api/options').set(u.auth).send({ comboMinScore: 60 }).expect(200)).body;
+    assert.equal(saved.settings.comboMinScore, 60);
+    await api().put('/api/options').set(u.auth).send({ comboMinScore: 120 }).expect(400);
+  } finally {
+    optionTrader.now = realNow;
+  }
+});
+
 test('the stop mode of pattern entries is saved, validated, and a fixed ATR stop replaces a far chart level', async () => {
   const u = await registerUser(app);
   const first = (await api().get('/api/options').set(u.auth).expect(200)).body.settings;

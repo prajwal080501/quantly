@@ -168,10 +168,10 @@ export function Sheet({ title, subtitle, onClose, children }) {
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="sheet-in pb-safe relative max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-line bg-surface md:max-w-2xl md:rounded-2xl">
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="sheet-in pb-safe relative max-h-[92dvh] w-full overflow-y-auto overscroll-contain rounded-t-3xl border border-line bg-surface shadow-2xl md:max-w-2xl md:rounded-3xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line md:hidden" />
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 bg-surface px-4 pb-2 pt-3">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-line/60 bg-surface/95 px-4 pb-2 pt-3 backdrop-blur">
           <div className="min-w-0">
             <div className="text-lg font-bold">{title}</div>
             {subtitle && <div className="text-xs leading-snug text-muted">{subtitle}</div>}

@@ -157,6 +157,58 @@ add('Time of day', 'midday', 'Midday (11:30 to 13:30)', 'The usual lull: moves a
 add('Time of day', 'afternoon', 'Afternoon (13:30 to 15:00)', 'Positions are built for the close.', (c, i) => c.minutes(i) >= 810 && c.minutes(i) < 900);
 add('Time of day', 'afterTen', 'After 10:00', 'Skips the opening noise.', (c, i) => c.minutes(i) >= 600);
 
+// ---------- Trend-day checks: what a big one-way morning (like 2 Nov, 145 points) tends to show early. None of them predicts it alone; use several together. ----------
+add('Trend', 'openDrive', 'Open drive (strong first half hour)', 'After 09:30 price is at least 2 ATR over the open and never fell more than half an ATR under it: buyers took the day from the first bar.', (c, i) => {
+  const ds = c.dayStartOf(i);
+  if (i < ds + 3 || i > ds + 12 || !num(c.atr[i])) return false; // judged between 09:30 and 10:15, while it is still an opening move
+  const open = c.O[ds];
+  const lowest = Math.min(...c.L.slice(ds, i + 1));
+  return c.C[i] - open >= 2 * c.atr[i] && open - lowest <= 0.5 * c.atr[i];
+});
+add('Trend', 'orBreakEvent', 'Breaks the opening range (first 15 minutes)', 'The close crosses over the high of the first three bars for the first time.', (c, i) => {
+  const hi = c.orHigh(i);
+  const before = c.orHigh(i - 1);
+  return num(hi) && c.C[i] > hi && (!num(before) || c.C[i - 1] <= before);
+}, { event: true });
+add('Trend', 'yHighBreak', "Breaks yesterday's high", 'The close crosses over the whole of yesterday for the first time today.', (c, i) => {
+  const ph = c.prevHigh(i);
+  return num(ph) && i > 0 && c.C[i] > ph && c.C[i - 1] <= ph;
+}, { event: true });
+add('Trend', 'tf15Trend', '15-minute trend up', 'The 15-minute averages (EMA 27 over EMA 63 on 5-minute bars) agree: the bigger picture is up, so a pullback is a gift and not a warning.', (c, i) => gt(c.ema(27)[i], c.ema(63)[i]) && gt(c.C[i], c.ema(63)[i]));
+add('Trend', 'adxRising', 'ADX rising (trend getting stronger)', 'ADX is over 18 and higher than 3 bars ago, with buyers leading: a trend is building, not fading.', (c, i) => i >= 3 && gt(c.dmi().adx[i], 18) && gt(c.dmi().adx[i], c.dmi().adx[i - 3]) && gt(c.dmi().pdi[i], c.dmi().ndi[i]));
+add('Trend', 'trendingNotChoppy', 'Market is trending (choppiness under 50)', 'The choppiness index over 14 bars is under 50: price is travelling, not wandering. No direction by itself.', (c, i) => lt(c.chop()[i], 50));
+add('Volatility', 'squeezeFire', 'Squeeze fires up (Bollinger leaves Keltner)', 'The Bollinger bands were inside the Keltner channel (a coiled market) and have just opened with price above the middle.', (c, i) => {
+  if (i < 2) return false;
+  const b = c.bb();
+  const k = c.kc();
+  const inside = (j) => num(b.upper[j]) && num(k.upper[j]) && b.upper[j] < k.upper[j] && b.lower[j] > k.lower[j];
+  return inside(i - 1) && !inside(i) && gt(c.C[i], b.mid[i]);
+}, { event: true });
+add('Volatility', 'nr7Break', 'Narrow bar, then a wide bullish bar', 'The previous bar was the narrowest of the last 7, and this bar is wider and closes up over its high: quiet turns to movement.', (c, i) => {
+  if (i < 7) return false;
+  const r = (j) => c.H[j] - c.L[j];
+  let narrow = true;
+  for (let j = i - 7; j < i - 1; j++) if (r(j) <= r(i - 1)) narrow = false;
+  return narrow && r(i) > r(i - 1) && c.C[i] > c.H[i - 1];
+}, { event: true });
+add('Volatility', 'roomLeft', 'Room left in the day (range under 80% of usual)', "Today's range so far is under 80% of the average of the last 5 days: the move is not used up yet. No direction by itself.", (c, i) => {
+  const room = c.roomRatio()[i];
+  return num(room) && room < 0.8;
+});
+add('Volume and VWAP', 'vwapHold', 'Pullback to VWAP that holds', 'Price dipped to within 0.3 ATR of VWAP in the last 3 bars, closed back above it, and VWAP is rising: buyers defend the day average.', (c, i) => {
+  const vw = c.vwap();
+  if (!vw || i < 3 || !num(c.atr[i]) || !num(vw[i]) || !num(vw[i - 3])) return false;
+  const touched = [0, 1, 2].some((k) => num(vw[i - k]) && c.L[i - k] - vw[i - k] <= 0.3 * c.atr[i]);
+  return touched && c.C[i] > vw[i] && c.C[i] > c.O[i] && vw[i] > vw[i - 3];
+}, { ...V, event: true });
+add('Volume and VWAP', 'volDryBreak', 'Quiet bars, then a break on volume', 'Three bars on below-average volume, then a close over the 6-bar high on 1.5 times the usual volume: a coil that opens with money behind it.', (c, i) => {
+  if (!c.flow || i < 6) return false;
+  const quiet = [1, 2, 3].every((k) => num(c.turnAvg(i - k)) && c.flow[i - k] < c.turnAvg(i - k));
+  return quiet && c.heavy(i, 1.5) && c.C[i] > Math.max(...c.H.slice(i - 6, i));
+}, { ...V, event: true });
+add('Time of day', 'notMidday', 'Not midday (skips 11:30 to 13:30)', 'Real-price tests found the midday lull wins least often. Use it as a filter beside an entry check.', (c, i) => c.minutes(i) < 690 || c.minutes(i) >= 810);
+add('Time of day', 'firstHour', 'First hour after the open (09:30 to 10:30)', 'The hour most big one-way days are decided.', (c, i) => c.minutes(i) >= 570 && c.minutes(i) < 630);
+
 // ---------- Chart patterns: the study's patterns, as events ----------
 for (const t of TECHNIQUES) {
   CONDITIONS.push({
@@ -298,6 +350,50 @@ function makeView(chart, d, flow, news) {
       if (i < ds + 3) return null; // the range is the first 3 bars (09:15 to 09:30)
       return Math.max(bars[ds].high, bars[ds + 1].high, bars[ds + 2].high);
     },
+    dayStartOf: (i) => prep.dayStart[i],
+    // choppiness index over 14 bars: 100 near a sideways market, under 40 a clean trend
+    chop: () => get('chop', () => {
+      const tr = S.trueRange(bars);
+      return bars.map((_, i) => {
+        if (i < 14) return null;
+        let sum = 0;
+        let hi = -Infinity;
+        let lo = Infinity;
+        for (let k = i - 13; k <= i; k++) {
+          sum += tr[k];
+          hi = Math.max(hi, H[k]);
+          lo = Math.min(lo, L[k]);
+        }
+        return hi > lo ? (100 * Math.log10(sum / (hi - lo))) / Math.log10(14) : null;
+      });
+    }),
+    // today's range so far over the average range of the 5 days before (null until 5 days are known)
+    roomRatio: () => get('room', () => {
+      const ranges = new Map();
+      bars.forEach((b, k) => {
+        const d = dayOf[k];
+        const r = ranges.get(d) || { hi: -Infinity, lo: Infinity };
+        r.hi = Math.max(r.hi, H[k]);
+        r.lo = Math.min(r.lo, L[k]);
+        ranges.set(d, r);
+      });
+      const days = [...ranges.keys()];
+      const out = [];
+      let hi = -Infinity;
+      let lo = Infinity;
+      for (let k = 0; k < bars.length; k++) {
+        if (k === prep.dayStart[k]) {
+          hi = -Infinity;
+          lo = Infinity;
+        }
+        hi = Math.max(hi, H[k]);
+        lo = Math.min(lo, L[k]);
+        const at = days.indexOf(dayOf[k]);
+        const past = days.slice(Math.max(0, at - 5), at).map((d) => ranges.get(d).hi - ranges.get(d).lo);
+        out.push(past.length >= 5 ? (hi - lo) / (past.reduce((a, b) => a + b, 0) / past.length) : null);
+      }
+      return out;
+    }),
     minutes: (i) => get('minutes', () => chart.bars.map((b) => istParts(new Date((b.time + 300) * 1000)).minutes))[i],
     pat: (key) => chart.patterns[d].get(key) || new Map(),
     newsAt: (i) => (news ? (news(i) || 0) * d : 0),

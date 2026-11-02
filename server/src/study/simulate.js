@@ -181,6 +181,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   return {
     technique: signal.technique,
     side: signal.side,
+    bar: signal.i ?? null, // the 5-minute bar that gave the signal, for explaining the entry
     note: signal.note,
     tag: signal.tag,
     score: signal.score,

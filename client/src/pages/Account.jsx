@@ -15,6 +15,7 @@ import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits, StopPlacement, Switch } from '../components/options/OptionsAutoCard.jsx';
 import { TrailStop } from '../components/options/TrailStop.jsx';
 import { EntryChoices } from '../components/study/ReportsStudies.jsx';
+import { DayReviewTile, GuideTile, PnlDownload } from '../components/AccountExports.jsx';
 
 function Row({ label, value, className = '' }) {
   return (
@@ -365,7 +366,7 @@ export default function Account() {
         {[
           { to: '/dashboard', label: 'P&L', hint: 'Profit and loss', icon: LayoutDashboard },
           { to: '/orders', label: 'Orders', hint: 'Every order', icon: ListOrdered },
-          { to: '/research', label: 'Research', hint: 'Review, studies, finder', icon: FlaskConical },
+          { to: '/research', label: 'Research', hint: 'Studies, lab, finder', icon: FlaskConical },
         ].map(({ to, label, hint, icon: Icon }) => (
           <Link key={to} to={to} className="card-shadow flex flex-col items-start gap-1 rounded-2xl border border-line bg-surface p-3 transition-colors hover:border-accent2">
             <Icon className="h-5 w-5 text-accent2" />
@@ -375,8 +376,11 @@ export default function Account() {
             <span className="text-[11px] text-muted">{hint}</span>
           </Link>
         ))}
+        <DayReviewTile />
         <TradingRules />
         <EntryChoices />
+        <PnlDownload />
+        <GuideTile />
       </div>
 
 

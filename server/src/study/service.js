@@ -10,7 +10,7 @@ import { conflict } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { runOptionsStudy } from './optionsStudy.js';
 import { runSharesStudy } from './sharesStudy.js';
-import { PriceBook } from './priceBook.js';
+import { PriceBook, firstStudyDay } from './priceBook.js';
 
 const WARMUP_DAYS = 6; // calendar days read before the study starts, so the indicators have context on its first day
 
@@ -32,12 +32,12 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { realPrices = false, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts } = {}) {
+  start(userId, kind, { realPrices = true, live = true, maxTrades, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
     const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts };
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, ...finder });
+    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -66,15 +66,21 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { realPrices = false, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts }) {
+  async #runOptions(userId, job, { realPrices = false, live = true, maxTrades, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts }) {
     // with the real prices on, the study covers only the days that were saved (inside any dates asked for), and takes only trades whose contract was saved
     let prices = null;
+    let noPrices = false;
     if (realPrices) {
       job.step = 'Reading the saved real option prices';
       prices = await PriceBook.load(index);
-      if (!prices.days.length) throw new Error('No real option prices are saved for this index yet. They are saved each evening after 15:40. Run the study without the real prices for now.');
+      if (!prices.days.length) {
+        noPrices = true; // nothing saved yet: run on the model's estimate and say so in the result
+        prices = null;
+      }
+    }
+    if (prices) {
       const [first, last] = [prices.days[0], prices.days.at(-1)];
-      from = from && from > first ? from : first;
+      from = firstStudyDay(prices.days, { days, from }); // 10 days = the newest 10 saved days, not everything saved
       to = to && to < last ? to : last;
       if (from > to) throw new Error(`Real option prices are saved from ${first} to ${last}. Pick dates inside that.`);
     }
@@ -105,6 +111,9 @@ export class StudyService {
       expiryWeekday: this.market.weekdayOf?.(index) ?? this.market.expiryWeekday,
       strikeStep: INDEXES[index].strikeStep,
       minScore: settings?.minScore ?? 80,
+      live,
+      maxTrades: maxTrades ?? (live ? settings?.maxTrades : null) ?? 3,
+      dailyLoss: live && settings ? (settings.budget * settings.dailyLossPct) / 100 : 0,
       combos: normalizeCombos(settings?.combos),
       stopRule: stopRuleOf(settings, index),
       entryFrom: window.from,
@@ -131,7 +140,7 @@ export class StudyService {
       exitMin: exitMin ?? rules.exitMin,
     };
     const result = await runOptionsStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
-    result.pricing = prices ? prices.describe() : { mode: 'estimated', iv };
+    result.pricing = prices ? prices.describe() : { mode: 'estimated', iv, ...(noPrices ? { note: 'No real option prices are saved for this index yet (one day is saved each evening after 15:40), so the premiums are estimated.' } : {}) };
     await this.#save(userId, 'options', result);
   }
 

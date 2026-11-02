@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { MAX_COMBOS } from '../../lib/autoFind.js';
-import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, roomSteps, stopWord, indexWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
+import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, roomSteps, stopWord, indexWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 
@@ -153,6 +153,12 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
           <Segmented className="w-full" size="sm" value={combo.index || ''} onChange={(v) => set({ index: v })} options={[{ value: '', label: 'Both' }, { value: 'NIFTY', label: 'Nifty' }, { value: 'SENSEX', label: 'Sensex' }]} />
         </div>
       )}
+      {kind === 'options' && (
+        <div className="space-y-1.5">
+          <div className="text-[11px] text-muted">Buys. A combination built from bullish checks should usually be calls only: its put twin is the mirror image and has lost money on rising days.</div>
+          <Segmented className="w-full" size="sm" value={combo.side || ''} onChange={(v) => set({ side: v })} options={[{ value: '', label: 'Calls and puts' }, { value: 'CE', label: 'Calls only' }, { value: 'PE', label: 'Puts only' }]} />
+        </div>
+      )}
       {kind !== 'shares' && (
         <div className="space-y-1.5">
           <div className="text-[11px] text-muted">Stop for this combination. The Combination research in a study finds the best one for each.</div>
@@ -288,7 +294,7 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
                       </div>
                       <Switch on={c.on} disabled={busy} label={`Use ${c.name}`} onClick={() => toggleOn(c.id)} />
                     </div>
-                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{kind === 'options' && c.index ? ` · ${indexWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
+                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{kind === 'options' && c.index ? ` · ${indexWord(c)}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
                     {kind === 'options' && !c.on && <p className="text-[11px] leading-snug text-muted">Off: the bot does not buy on it, but studies still try it, and one "together" row runs every combination as a set.</p>}
                     <div className="flex justify-end gap-2">
                       <button type="button" className="btn btn-sm" onClick={() => setEditing(c.id)} disabled={busy}>

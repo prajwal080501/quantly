@@ -81,7 +81,7 @@ export function FinderStudy() {
   const [goal, setGoal] = useState('profit');
   const [research, setResearch] = useState(true);
   const [parts, setParts] = useState(true);
-  const [realPrices, setRealPrices] = useState(false);
+  const [realPrices, setRealPrices] = useState(true);
   const { state, error, running, run } = useStudy(kind);
   const options = kind === 'options';
   const dates = options && range === 'dates';
