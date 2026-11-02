@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { AutoLog, AutoSettings, OptionSettings, Position, ScanIdea } from '../models/index.js';
@@ -72,6 +73,15 @@ export function reportRoutes({ engine, market, review }) {
   });
 
   /** The how-to-use guide as a Markdown file. */
+  // The guide with screenshots, built ahead of time by scripts/build-guide.mjs (pictures taken on demo data).
+  const guideFile = (name) => fileURLToPath(new URL(`../guide/${name}`, import.meta.url));
+  router.get('/guide.pdf', (_req, res) => {
+    res.download(guideFile('app-guide.pdf'), 'nifty-paper-trader-guide.pdf');
+  });
+  router.get('/guide.html', (_req, res) => {
+    res.download(guideFile('app-guide.html'), 'nifty-paper-trader-guide.html');
+  });
+
   router.get('/guide.md', (_req, res) => {
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="app-guide.md"');

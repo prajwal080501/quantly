@@ -52,3 +52,19 @@ test('the P&L summary groups trades by day, week and month, keeps a running tota
   assert.equal(s.byWeekday.find((w) => w.label === 'Thu').net, 1000);
   assert.equal(pnlSummary([]).totals.trades, 0);
 });
+
+test('the picture guide has every screenshot it lists, and the built HTML and PDF are saved next to the text', async () => {
+  const { existsSync, statSync } = await import('node:fs');
+  const { FIGURES } = await import('../src/guide/figures.js');
+  const { guideHtml } = await import('../scripts/build-guide.mjs');
+  const dir = new URL('../src/guide/', import.meta.url);
+  const files = Object.values(FIGURES).flat();
+  assert.ok(files.length >= 14);
+  for (const f of files) assert.ok(existsSync(new URL(`shots/${f.file}.jpg`, dir)), f.file);
+  const html = guideHtml();
+  assert.equal(html.match(/<figure /g).length, files.length, 'one picture per listed figure');
+  assert.match(html, /made-up demo data/);
+  assert.ok(statSync(new URL('app-guide.pdf', dir)).size > 100000);
+  const { readFileSync } = await import('node:fs');
+  assert.equal(readFileSync(new URL('app-guide.html', dir), 'utf8'), html, 'app-guide.html is out of date: run node scripts/build-guide.mjs --pdf');
+});
