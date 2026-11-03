@@ -65,3 +65,16 @@ export function getMarketStatus(date = new Date(), holidays = []) {
     squareOffAt: '15:15 IST',
   };
 }
+
+// The day a report should show by default: today once the market has opened, otherwise the last trading day before it
+// (so a report made after midnight, before 09:15, or on a weekend or holiday shows the day that was actually traded).
+export function lastTradingDayKey(date = new Date(), holidays = []) {
+  const { minutes } = istParts(date);
+  let ref = new Date(date.getTime());
+  if (isTradingDay(ref, holidays) && minutes >= OPEN_MIN) return istParts(ref).dateKey;
+  for (let i = 0; i < 15; i += 1) {
+    ref = new Date(ref.getTime() - 24 * 3600 * 1000);
+    if (isTradingDay(ref, holidays)) return istParts(ref).dateKey;
+  }
+  return istParts(date).dateKey;
+}

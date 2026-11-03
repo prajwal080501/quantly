@@ -20,7 +20,8 @@ after(async () => {
 });
 
 test('the day report is one text block with the rules, ideas, trades, skips and no secrets', async () => {
-  const day = ctx.engine.marketStatus().istDate;
+  const { lastTradingDayKey } = await import('../src/market/marketHours.js');
+  const day = lastTradingDayKey(ctx.engine.now(), ctx.engine.config.nseHolidays);
   const uid = user.user.id || user.user._id;
   await ScanIdea.create({ day, symbol: 'SBIN', setup: 'ORB', side: 'BUY', entry: 800, stopLoss: 796, target1: 806, target2: 810, riskReward: 1.5, score: 82, status: 'STOPPED', exitPrice: 796, bestR: 0.3, worstR: -1 });
   await AutoLog.create({ user: uid, day, symbol: 'SBIN', side: 'BUY', setup: 'ORB', score: 82, decision: 'PLACED', status: 'CLOSED', entry: 800, stopLoss: 796, fillPrice: 800.1, qty: 100, outcome: { exitReason: 'STOP', exitPrice: 796, grossPnl: -410, charges: 40, netPnl: -450, resultR: -1.02, minutesHeld: 22, bestR: 0.3, worstR: -1 } });

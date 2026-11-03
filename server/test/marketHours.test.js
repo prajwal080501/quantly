@@ -34,3 +34,16 @@ test('IST date rolls over at 18:30 UTC', () => {
   assert.equal(istParts(at('2026-10-21T18:29:00Z')).dateKey, '2026-10-21');
   assert.equal(istParts(at('2026-10-21T18:30:00Z')).dateKey, '2026-10-22');
 });
+
+test('the report day is the last day the market was open', async () => {
+  const { lastTradingDayKey } = await import('../src/market/marketHours.js');
+  // Wed 2026-11-04 01:54 IST: the market has not opened yet, so the report shows Tue 3 Nov.
+  assert.equal(lastTradingDayKey(at('2026-11-03T20:24:00Z')), '2026-11-03');
+  // Wed 2026-11-04 10:00 IST: today.
+  assert.equal(lastTradingDayKey(at('2026-11-04T04:30:00Z')), '2026-11-04');
+  // Sat 2026-11-07 and Mon 2026-11-09 08:00 IST both go back to Fri 6 Nov.
+  assert.equal(lastTradingDayKey(at('2026-11-07T06:00:00Z')), '2026-11-06');
+  assert.equal(lastTradingDayKey(at('2026-11-09T02:30:00Z')), '2026-11-06');
+  // a holiday is skipped too
+  assert.equal(lastTradingDayKey(at('2026-11-04T04:30:00Z'), ['2026-11-04']), '2026-11-03');
+});
