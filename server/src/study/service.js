@@ -4,12 +4,14 @@ import { stopRuleOf } from './patterns.js';
 import { forIndex } from '../options/indexSettings.js';
 import { entryWindowOf } from '../options/signal.js';
 import { breakEvenOf, trailOf } from './simulate.js';
-import { loadRules } from '../models/TradeDefaults.js';
+import { loadRules, TradeDefaults } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { INDEXES, DEFAULT_INDEX, lotSizeOf } from '../options/symbols.js';
 import { conflict } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import { runOptionsStudy } from './optionsStudy.js';
+import { runOptionsStudy, runLadderStudy } from './optionsStudy.js';
+import { chaseOf } from '../options/chase.js';
+import { entryModes } from '../options/optionTrader.js';
 import { runSharesStudy } from './sharesStudy.js';
 import { PriceBook, firstStudyDay } from './priceBook.js';
 
@@ -38,7 +40,7 @@ export class StudyService {
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
     const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts };
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
+    const run = kind === 'ladder' ? this.#runLadder(userId, job, { index, days: days ?? 30 }) : kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -121,6 +123,7 @@ export class StudyService {
       entryTo: window.to,
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
+      chase: chaseOf(settings),
       autoFind,
       pairFind,
       pairFirst,
@@ -144,6 +147,69 @@ export class StudyService {
     const result = await runOptionsStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     result.pricing = prices ? prices.describe() : { mode: 'estimated', iv, ...(noPrices ? { note: 'No real option prices are saved for this index yet (one day is saved each evening after 15:40), so the premiums are estimated.' } : {}) };
     await this.#save(userId, 'options', result);
+  }
+
+  /** The ladder tester: the live entries on the saved real option prices, sold with many profit ladders and with the anti-chase check. */
+  async #runLadder(userId, job, { index = DEFAULT_INDEX, days = 30 }) {
+    job.step = 'Reading the saved real option prices';
+    const prices = await PriceBook.load(index);
+    if (!prices.days.length) throw new Error('No real option prices are saved yet. They are saved each evening after 15:40 while the server runs and Upstox is logged in, or press Download in Research > Saved data.');
+    const from = firstStudyDay(prices.days, { days });
+    const to = prices.days.at(-1);
+    const { nifty1 } = await this.#nifty(job, days, index, from);
+    const stocks5 = {};
+    let failed = 0;
+    for (const [n, { symbol }] of NIFTY50.entries()) {
+      job.step = `Reading the 50 stocks (${n + 1}/50)`;
+      try {
+        stocks5[symbol] = await this.#range(symbol, 5, Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 + WARMUP_DAYS);
+      } catch {
+        failed += 1;
+        if (failed >= 5 && !Object.keys(stocks5).length) break;
+      }
+    }
+    const [rules, raw] = await Promise.all([loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean()]);
+    const settings = forIndex(raw || new OptionSettings({ user: userId }).toObject(), index);
+    const window = entryWindowOf(settings);
+    const modes = entryModes(settings);
+    const params = {
+      days,
+      from,
+      to,
+      prices,
+      iv: 0.14,
+      steps: rules.steps,
+      index,
+      lotSize: lotSizeOf(index, this.config),
+      holidays: this.config.nseHolidays,
+      expiryWeekday: this.market.weekdayOf?.(index) ?? this.market.expiryWeekday,
+      strikeStep: INDEXES[index].strikeStep,
+      live: true,
+      maxTrades: settings?.maxTrades ?? 3,
+      dailyLoss: settings ? (settings.budget * settings.dailyLossPct) / 100 : 0,
+      combos: normalizeCombos(settings?.combos),
+      comboEntries: modes.combos,
+      patterns: modes.patterns,
+      patternMinScore: settings?.patternMinScore ?? 0,
+      comboMinScore: settings?.comboMinScore ?? 0,
+      stopRule: stopRuleOf(settings, index),
+      entryFrom: window.from,
+      entryTo: window.to,
+      trail: trailOf(settings),
+      breakEven: breakEvenOf(settings),
+      chase: chaseOf(settings),
+      lossLimit: rules.stopLoss ?? 0,
+      maxLots: settings?.maxLots ?? 2,
+      sideOnly: settings?.sideOnly ?? null,
+      target: 0,
+      exitMin: rules.exitMin,
+    };
+    const result = await runLadderStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
+    result.pricing = prices.describe();
+    const own = index === 'SENSEX' && (await TradeDefaults.findOne({ user: userId }, 'sensex.own').lean())?.sensex?.own;
+    result.applyKey = own ? 'sensex' : 'options'; // where "Use this ladder" saves it
+    result.lockOn = rules.lockOn !== false;
+    await this.#save(userId, 'ladder', result);
   }
 
   async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal, pairParts }) {

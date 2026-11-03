@@ -10,6 +10,7 @@ import { verdictOf, halvesOf } from '../combos/verdict.js';
 import { runResearch } from './research.js';
 import { comboStopRule } from '../combos/combos.js';
 import { findPairs, findCombos, pairStart } from './pairFinder.js';
+import { runLadderTest, MIN_SPLIT_DAYS } from './ladderTest.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -185,7 +186,7 @@ export const studyCombos = (combos, index) => (combos || []).filter((c) => combo
 /** The entry hours of this run: Account > Limits, else 09:15 to 15:15. */
 const whenOf = (params) => entryTest({ from: params.entryFrom ?? FIRST_ENTRY_MIN, to: params.entryTo ?? LAST_ENTRY_MIN });
 
-async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
+export async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
   const out = [];
   const scores = new Map(); // bar index -> the live score of each side at that close, whether or not the bot would buy
   let n = 0;
@@ -295,6 +296,10 @@ export function tradesFor(signals, { c1, byTime, params }) {
       continue;
     }
     const trade = simulateTrade({ c1, byTime, signal: { ...s, time: at, stop }, params });
+    if (trade?.skipped === 'chase') {
+      skips.chase = (skips.chase || 0) + 1; // the premium had already run up too far (the anti-chase check)
+      continue;
+    }
     if (trade?.skipped) {
       skippedWide += 1; // the loss at its stop is more than the loss limit even for one lot
       continue;
@@ -418,6 +423,76 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     research,
     combosSkipped,
     breadth: breadthStudy(bars5, breadth, fromTime),
+  };
+}
+
+/**
+ * The ladder tester (Research > Ladder tester): the entries the live trader takes (its chosen patterns and the combinations switched on),
+ * replayed by the live rules on the saved real option prices, then sold with many profit ladders and with the anti-chase check.
+ * The older two thirds of the days pick, the newest third checks. See ladderTest.js.
+ * @param params  the study params plus { patterns (the live pattern keys, empty when pattern entries are off), comboEntries, patternMinScore, comboMinScore }
+ */
+export async function runLadderStudy({ nifty1, stocks5 = null, params, onProgress = () => {} }) {
+  const dayOf = (key) => Date.parse(`${key}T00:00:00Z`) / 86400000;
+  const complete = params.to ? nifty1.filter((b) => DAY(b.time) <= dayOf(params.to)) : nifty1;
+  const days = [...new Set(complete.map((b) => DAY(b.time)))].sort((a, b) => a - b);
+  const studyDays = params.from ? days.filter((d) => d >= dayOf(params.from)) : days.slice(-params.days);
+  if (!studyDays.length) throw new Error('No Nifty candles on the days with saved option prices. Press Download in Research > Saved data and retry.');
+  const fromTime = complete.find((b) => DAY(b.time) === studyDays[0]).time;
+  const byTime = new Map(complete.map((b, i) => [b.time, i]));
+  let bars5 = aggregateCandles(complete, '5m');
+  if (bars5.length && bars5.at(-1).time + 300 > complete.at(-1).time + 60) bars5 = bars5.slice(0, -1);
+  onProgress('Working out the 50-stock breadth');
+  const breadth = breadthSeries(bars5, stocks5);
+  const flow = turnoverSeries(bars5, stocks5);
+  const prep = prepare(bars5, breadth, flow);
+  const chart = buildChart(bars5, { breadth, flow, prep });
+  const inStudy = (s) => s.time - 300 >= fromTime;
+  const when = whenOf(params);
+
+  onProgress('Finding the entries the live trader would take');
+  const signals = [];
+  const sources = [];
+  const skipped = [];
+  const patterns = params.patterns ?? [];
+  if (patterns.length) {
+    const found = findSignals(prep, { when, only: patterns }).filter(inStudy).map((s) => ({ ...s, minScore: params.patternMinScore ?? 0 }));
+    signals.push(...found);
+    sources.push({ kind: 'pattern', label: `Patterns: ${patterns.map((k) => LABELS[k]?.label ?? k).join(', ')}`, signals: found.length });
+  }
+  let ownLadder = 0;
+  if (params.comboEntries !== false) {
+    for (const combo of studyCombos(params.combos, params.index).filter((c) => c.on)) {
+      const missing = missingData(combo, chart.have);
+      if (missing.length) {
+        skipped.push(combo.name);
+        continue;
+      }
+      const found = comboSignals(chart, combo, { when, label: `combo:${combo.id}` }).filter(inStudy).map((s) => ({ ...s, minScore: params.comboMinScore ?? 0 }));
+      if (found.some((s) => s.exits && 'steps' in s.exits)) ownLadder += 1;
+      signals.push(...found);
+      sources.push({ kind: 'combo', label: `Combination: ${combo.name}`, signals: found.length });
+    }
+  }
+  // a minimum chart score (Account > Entries) is checked as live: the score of the signal's side at that close
+  let kept = signals;
+  if (signals.some((s) => s.minScore > 0)) {
+    onProgress('Working out the chart score at each signal');
+    const bot = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: 101 });
+    kept = signals.map((s) => ({ ...s, score: bot.scores.get(s.i)?.[s.side] })).filter((s) => !(s.minScore > 0) || (s.score != null && s.score >= s.minScore));
+  }
+  const cut = Math.floor((studyDays.length * 2) / 3);
+  const splitOk = studyDays.length >= MIN_SPLIT_DAYS;
+  const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.min(cut, studyDays.length - 1)])?.time ?? Infinity;
+  const test = await runLadderTest({ signals: kept, tradesFor: (sigs, p) => tradesFor(sigs, { c1: complete, byTime, params: p }), trainEnd, splitOk, params, onProgress, yieldTurn });
+  return {
+    generatedAt: new Date().toISOString(),
+    period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length, fitDays: splitOk ? cut : studyDays.length, checkDays: splitOk ? studyDays.length - cut : 0, checkFrom: splitOk ? dayKey(trainEnd) : null },
+    params: { index: params.index ?? 'NIFTY', lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lotSize: params.lotSize, maxPerDay: params.maxTrades ?? MAX_PER_DAY, trail: params.trail ?? null, breakEven: params.breakEven ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15 },
+    sources,
+    combosSkipped: skipped,
+    ownLadder,
+    ...test,
   };
 }
 

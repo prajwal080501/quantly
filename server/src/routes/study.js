@@ -8,7 +8,8 @@ export const SHARES_NOTE = 'This replays the scanner on past 1-minute candles of
 
 export const STUDY_NOTE = 'This is a replay of past Nifty candles as paper trades of one lot. Option prices are estimated unless the real prices switch is on (it uses the premiums saved each evening, so far fewer days), so the rupee amounts are a guide. Past results do not promise future ones.';
 
-const KINDS = ['options', 'shares'];
+const KINDS = ['options', 'shares', 'ladder'];
+export const LADDER_NOTE = 'A replay of the entries your auto trader takes, on the real option prices saved each evening, sold with many profit ladders. Each ladder is picked on the older days and checked on the newest days it never saw. It changes nothing until you tap Use. Past results do not promise future ones.';
 const runSchema = z.object({
   days: z.coerce.number().int().min(1).max(65).optional(),
   iv: z.coerce.number().min(0.08).max(0.4).default(0.14),
@@ -33,7 +34,7 @@ const runSchema = z.object({
   maxTrades: z.coerce.number().int().min(1).max(10).optional(), // options only: trades a day for this run; left out = the Account setting
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
-const MAX_DAYS = { options: 65, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short; options can use the saved three months
+const MAX_DAYS = { options: 65, shares: 15, ladder: 30 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short; options can use the saved three months
 
 export function studyRoutes({ study }) {
   const router = Router();
@@ -42,7 +43,7 @@ export function studyRoutes({ study }) {
 
   router.get('/:kind', async (req, res) => {
     const { kind } = req.params;
-    res.json({ status: study.status(req.userId, kind), result: await study.latest(req.userId, kind), note: kind === 'shares' ? SHARES_NOTE : STUDY_NOTE });
+    res.json({ status: study.status(req.userId, kind), result: await study.latest(req.userId, kind), note: kind === 'shares' ? SHARES_NOTE : kind === 'ladder' ? LADDER_NOTE : STUDY_NOTE });
   });
 
   router.post('/:kind', validate(runSchema), (req, res) => {

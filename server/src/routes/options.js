@@ -48,6 +48,8 @@ const patch = z
     trailPoints: z.coerce.number().min(5).max(200),
     trailStart: z.coerce.number().min(0).max(200),
     breakEvenPoints: z.coerce.number().min(0).max(200),
+    chasePct: z.coerce.number().min(0).max(200),
+    chaseMinutes: z.coerce.number().int().min(5).max(60),
     patterns: z.array(z.enum(LIVE_PATTERNS.map((p) => p.key))).max(LIVE_PATTERNS.length),
     combos: comboInput,
   })
@@ -65,7 +67,7 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100, ...Object.fromEntries(SENSEX_KEYS.map((k) => [k, s[k] ?? null])) };
+    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, chasePct: s.chasePct ?? 0, chaseMinutes: s.chaseMinutes ?? 15, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100, ...Object.fromEntries(SENSEX_KEYS.map((k) => [k, s[k] ?? null])) };
     return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), sensexRules: await loadRules(userId, 'OPT', { index: 'SENSEX' }), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
