@@ -18,6 +18,7 @@ const lockText = (r, stopLabel = 'stop') => `${r.stopLoss > 0 ? `${stopLabel} â‚
 const optionExits = (o) => [
   o.trailMode === 'points' ? `index trail ${o.trailPoints} points behind the best price once ${o.trailStart} points up` : 'no index trail',
   o.breakEvenPoints > 0 ? `stop to entry once ${o.breakEvenPoints} points up` : 'no break-even move',
+  o.chasePct > 0 ? `no buy when the premium is over ${o.chasePct}% above its ${o.chaseMinutes ?? 15}-minute low` : 'no anti-chase check',
 ].join(', ');
 
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {

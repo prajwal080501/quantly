@@ -10,6 +10,7 @@ import { buildChart } from '../combos/conditions.js';
 import { comboSignals, normalizeCombos, comboFitsIndex } from '../combos/combos.js';
 import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
+import { chaseOf, chaseRise, chaseSkip } from './chase.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
@@ -337,6 +338,13 @@ export class OptionTrader {
 
     const contract = await this.market.pickOption({ type: side.type, now: this.now(), index });
     if (!contract?.ltp) return stop('no option contract with a live price');
+    const chase = manual ? null : chaseOf(settings);
+    if (chase) {
+      // the anti-chase check: the contract's own 1-minute candles of today; with none (or no broker), the check is not made
+      const candles = await Promise.resolve(this.market.provider?.getTodayOptionCandles?.(contract.symbol, 1)).catch(() => []);
+      const why = chaseSkip(chaseRise(candles ?? [], contract.ltp, { now: Math.floor(this.now().getTime() / 1000), minutes: chase.minutes }), chase);
+      if (why) return stop(why);
+    }
     const funds = await getFunds(userId, this.config.startingBalance);
     const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT', { index }), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
     if (planned.skipped) return stop(planned.skipped);

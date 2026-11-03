@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
-import { Database, FlaskConical, ClipboardCopy, Search, TrendingUp } from 'lucide-react';
+import { Database, FlaskConical, ClipboardCopy, Layers, Search, TrendingUp } from 'lucide-react';
 import { Picker, Skeleton } from '../components/ui.jsx';
 
 // each tab loads only when it is opened, so the Research page itself opens fast
@@ -8,6 +8,7 @@ const Lab = lazy(() => import('./Lab.jsx'));
 const OptionsStudy = lazy(() => import('../components/options/OptionsStudy.jsx').then((m) => ({ default: m.OptionsStudy })));
 const SharesStudy = lazy(() => import('../components/study/SharesStudy.jsx').then((m) => ({ default: m.SharesStudy })));
 const FinderStudy = lazy(() => import('../components/study/FinderStudy.jsx').then((m) => ({ default: m.FinderStudy })));
+const LadderTester = lazy(() => import('../components/study/LadderTester.jsx').then((m) => ({ default: m.LadderTester })));
 const HistoryData = lazy(() => import('../components/study/HistoryData.jsx').then((m) => ({ default: m.HistoryData })));
 const DayReportButton = lazy(() => import('../components/DayReportButton.jsx').then((m) => ({ default: m.DayReportButton })));
 
@@ -15,6 +16,7 @@ export const RESEARCH_TABS = [
   { value: 'lab', label: 'Combination Lab', icon: FlaskConical, hint: 'One combination over weeks: every entry, a chart, and the indicator that would skip each loss' },
   { value: 'options', label: 'Options study', icon: TrendingUp, hint: 'Replay past candles: which option entries pay' },
   { value: 'shares', label: 'Shares study', icon: FlaskConical, hint: 'Replay past candles: which share setups pay' },
+  { value: 'ladder', label: 'Ladder tester', icon: Layers, hint: 'Your auto entries on 30 days of real option prices, sold with many profit ladders: the best one, checked on days it never saw' },
   { value: 'finder', label: 'Finder', icon: Search, hint: 'Extra checks that lift a combination, and its best stop and profit' },
   { value: 'data', label: 'Saved data', icon: Database, hint: 'The candles and option prices the other sections read' },
   { value: 'report', label: 'Day report', icon: ClipboardCopy, hint: 'Copy the day report to paste in the chat' },
@@ -44,6 +46,7 @@ export default function Research() {
         {tab === 'options' && <OptionsStudy />}
         {tab === 'shares' && <SharesStudy />}
         {tab === 'finder' && <FinderStudy />}
+        {tab === 'ladder' && <LadderTester />}
         {tab === 'data' && <HistoryData />}
         {tab === 'report' && <DayReportButton />}
       </Suspense>

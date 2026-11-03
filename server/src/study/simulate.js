@@ -3,6 +3,7 @@ import { atmStrike, chooseExpiry, weeklyExpiries, yearsToExpiry, DEFAULT_LOT_SIZ
 import { calculateCharges } from '../services/charges.js';
 import { istParts } from '../market/marketHours.js';
 import { round2 } from '../utils/money.js';
+import { chaseRise, candlesBefore, chaseSkip } from '../options/chase.js';
 
 // Replays one option buy on the Nifty 1-minute chart. There is no history of real option prices, so the premium is estimated
 // with Black-Scholes at a fixed volatility. Direction and timing are real; the rupee amounts are an estimate.
@@ -32,13 +33,14 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  * @param params  { exitMin (minutes after midnight IST when everything is closed, default 15:15), iv, lockStart, lockGap, steps (the typed ladder: [{ at, keep }], overrides lockStart and lockGap), lotSize, holidays, expiryWeekday, strikeStep, lossLimit, maxLots }
  *                `breakEven` (points, 0 = off) moves the stop to the entry price once the index has gone that far your way (exit reason BREAKEVEN).
  *                `trail` ({ points, start }) adds a trailing stop: once the index has moved `start` points your way the chart stop sits `points` behind the best price and never moves back (exit reason TRAIL).
+ *                `chase` ({ pct, minutes }) skips a buy whose real premium is already more than `pct` percent above its low of the last `minutes` minutes ({ skipped: 'chase' }).
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
   // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades
-  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = signal.exits ? { ...params, ...signal.exits } : params;
+  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null } = signal.exits ? { ...params, ...signal.exits } : params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const prices = given && (!mixPrices || given.hasDay(istParts(new Date(signal.time * 1000)).dateKey)) ? given : null; // mixPrices: a day with no saved premiums is estimated, not skipped
@@ -65,6 +67,10 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     const c = real && kind ? real.get(time) : null;
     return c && c[kind] > 0 ? c[kind] : bsPrice({ type: signal.side, spot, strike, t: yearsAt(time), iv: modelIv });
   };
+  // how far the real premium had already run up from its low of the last minutes (the anti-chase check); unknown without saved prices
+  const chaseMin = chase?.minutes ?? 15;
+  const rise = real ? chaseRise(candlesBefore(real, entryBar.time, chaseMin), real.get(entryBar.time).open, { now: entryBar.time, minutes: chaseMin }) : null;
+  if (chaseSkip(rise, chase)) return { skipped: 'chase', rise };
   const paid = premiumAt(entryBar.open, entryBar.time, 'open') * (1 + SLIPPAGE);
   if (paid < 1) return null;
   let lots = 1;
@@ -202,6 +208,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     minutes: Math.max(1, Math.round((exit.time - entryBar.time) / 60)),
     best: round2(best),
     worst: round2(worst),
+    rise,
   };
 }
 

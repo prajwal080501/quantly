@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { toast } from 'sonner';
@@ -222,6 +223,10 @@ export function OptionsAutoCard({ data, reload }) {
       </p>
       <p className="text-[11px] leading-snug text-muted">
         Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}. Change this in Account &gt; Entries.
+      </p>
+      <p className="text-[11px] leading-snug text-muted">
+        {s.chasePct > 0 ? `Skips a buy when the premium is over ${s.chasePct}% above its ${s.chaseMinutes ?? 15}-minute low. ` : ''}
+        <Link to="/research?tab=ladder" className="font-semibold text-accent">Test profit ladders on the saved prices</Link>
       </p>
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>
