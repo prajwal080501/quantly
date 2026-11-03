@@ -34,7 +34,7 @@ export function DayReportButton() {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="Report day (empty = today)" className="num min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-fg outline-none focus:border-accent" />
+        <input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="Report day (empty = last trading day)" title="Empty = the last day the market was open" className="num min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-fg outline-none focus:border-accent" />
         <button type="button" onClick={build} disabled={busy} className="btn btn-primary btn-sm shrink-0">
           <ClipboardCopy className="h-3.5 w-3.5" /> {busy ? 'Building…' : 'Copy report'}
         </button>

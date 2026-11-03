@@ -10,6 +10,7 @@ import { buildDayReport } from '../report/dayReport.js';
 import { summarizeIdeas } from '../scanner/stats.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { logger } from '../utils/logger.js';
+import { lastTradingDayKey } from '../market/marketHours.js';
 
 const query = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 const day10 = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -20,7 +21,8 @@ export function reportRoutes({ engine, market, review }) {
   const router = Router();
 
   router.get('/day', validate(query, 'query'), async (req, res) => {
-    const day = req.valid.day ?? engine.marketStatus().istDate;
+    // Empty day = the last day the market was open (after midnight or before 09:15 that is yesterday, not a day with no trades yet).
+    const day = req.valid.day ?? lastTradingDayKey(engine.now(), engine.config?.nseHolidays ?? []);
     const [ideas, eqLog, optLog, autoDoc, optDoc, finished] = await Promise.all([
       ScanIdea.find({ day }).sort({ createdAt: 1 }).lean(),
       AutoLog.find({ user: req.userId, day, segment: { $ne: 'OPT' } }).sort({ decidedAt: 1 }).lean(),

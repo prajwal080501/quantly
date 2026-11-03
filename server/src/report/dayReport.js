@@ -14,10 +14,16 @@ const MAX_ROWS = 60;
 
 const lockText = (r, stopLabel = 'stop') => `${r.stopLoss > 0 ? `${stopLabel} ₹${r.stopLoss} a trade` : 'no automatic stop'}; ${r.steps?.length > 1 ? `profit lock ladder: ${ladderText(r.steps)} (above a row the stop follows that row's gap behind the best profit)` : r.lockStart > 0 ? `once the profit reaches ₹${r.lockStart} the stop follows ₹${r.lockGap} behind the best profit` : 'no profit lock'}`;
 
+// The trail and break-even the options trader really uses (the old text always said 'no trailing').
+const optionExits = (o) => [
+  o.trailMode === 'points' ? `index trail ${o.trailPoints} points behind the best price once ${o.trailStart} points up` : 'no index trail',
+  o.breakEvenPoints > 0 ? `stop to entry once ${o.breakEvenPoints} points up` : 'no break-even move',
+].join(', ');
+
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {
   const lines = [];
   if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; ${lockText(lock.shares)}.`);
-  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, patterns ${options.patternMinScore > 0 ? `(score ${options.patternMinScore}+)` : '(no score)'} and combinations ${options.comboMinScore > 0 ? `(score ${options.comboMinScore}+)` : '(no score)'}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target and no trailing; ${lockText(lock.options, 'loss limit')}.`);
+  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, patterns ${options.patternMinScore > 0 ? `(score ${options.patternMinScore}+)` : '(no score)'} and combinations ${options.comboMinScore > 0 ? `(score ${options.comboMinScore}+)` : '(no score)'}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target, ${optionExits(options)}; ${lockText(lock.options, 'loss limit')}.`);
   return lines;
 }
 
