@@ -10,13 +10,14 @@ import { FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
 export const MAX_CONDITIONS = 20;
 export const MAX_COMBOS = 30; // saved combinations per user, for options and for shares each
 export const DEFAULT_WINDOW = 3;
+export const MAX_ALSO = 6; // add-on checks on top of an "any N of M" rule
 const COOLDOWN_BARS = 3;
 const STOP_LOOKBACK = 6; // with no pattern in the combination, the stop sits under the last 6 bars, like the Breakout pattern
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), index: z.enum(['NIFTY', 'SENSEX']).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), index: z.enum(['NIFTY', 'SENSEX']).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -27,6 +28,13 @@ export function normalizeCombo(raw, index = 0) {
   const need = Math.min(conds.length, Math.max(1, Math.round(Number(raw.need)) || conds.length));
   const window = Math.min(6, Math.max(1, Math.round(Number(raw.window)) || DEFAULT_WINDOW));
   const out = { id: slug(raw.id || name) || `combo-${index + 1}`, name, conds, need, window, on: raw.on !== false };
+  // add-on checks that must all hold beside the rule; only used when the rule is "any N of M" (for "all" they simply join `conds`)
+  const also = [...new Set((raw.also || []).filter((k) => CONDITION_BY_KEY.has(k) && !conds.includes(k)))].slice(0, MAX_ALSO);
+  if (also.length && need < conds.length) out.also = also;
+  else if (also.length) {
+    out.conds = [...conds, ...also].slice(0, MAX_CONDITIONS);
+    out.need = out.conds.length;
+  }
   if (raw.index === 'NIFTY' || raw.index === 'SENSEX') out.index = raw.index; // unset = both indexes
   if (raw.side === 'CE' || raw.side === 'PE') out.side = raw.side; // unset = both: a call on the rise and a put on the fall. One side only stops a "bullish" combination from buying puts.
   // an optional stop of its own: the combination's entries use it in place of the stop set for every entry in Account > Entries
@@ -87,7 +95,7 @@ export const normalizeCombos = (list) => {
 };
 
 /** The conditions of a combination that the chart has the data for; a combination that needs data the chart lacks cannot be tested. */
-export const missingData = (combo, have) => combo.conds.map((k) => CONDITION_BY_KEY.get(k)).filter((c) => !usable(c, have)).map((c) => c.needs);
+export const missingData = (combo, have) => [...combo.conds, ...(combo.also || [])].map((k) => CONDITION_BY_KEY.get(k)).filter((c) => !usable(c, have)).map((c) => c.needs);
 
 /** Does a combination apply to this index? One with no index of its own is for both. */
 export const comboFitsIndex = (combo, index) => !combo.index || !index || combo.index === index;
@@ -130,6 +138,7 @@ function heldArray(chart, cond, d, window) {
 export function comboSignals(chart, combo, { from = 15, windows = true, when = null, label = null } = {}) {
   const conds = combo.conds.map((k) => CONDITION_BY_KEY.get(k)).filter(Boolean);
   if (!conds.length || conds.some((c) => !usable(c, chart.have))) return [];
+  if ((combo.also || []).some((k) => CONDITION_BY_KEY.has(k) && !usable(CONDITION_BY_KEY.get(k), chart.have))) return [];
   const need = Math.min(combo.need || conds.length, conds.length);
   const window = combo.window || DEFAULT_WINDOW;
   const out = [];
@@ -194,7 +203,7 @@ export function holdsAt(chart, key, d, i, window = DEFAULT_WINDOW) {
 /** Which checks of a combination held on bar i of the chart, as a call (d = 1) or a put (d = -1): a state on the bar, an event anywhere in the last `window` bars. */
 export function heldConditions(chart, combo, d, i) {
   const window = combo.window || DEFAULT_WINDOW;
-  return combo.conds
+  return [...combo.conds, ...(combo.also || [])]
     .map((k) => CONDITION_BY_KEY.get(k))
     .filter(Boolean)
     .map((cond) => {
@@ -209,8 +218,9 @@ export function heldConditions(chart, combo, d, i) {
 export function describeCombo(combo) {
   const names = combo.conds.map((k) => CONDITION_BY_KEY.get(k)?.label || k);
   const rule = combo.need >= combo.conds.length ? `All ${names.length} must hold together` : `At least ${combo.need} of ${names.length} must hold together`;
-  const events = combo.conds.some((k) => CONDITION_BY_KEY.get(k)?.kind === 'event') ? `; an event (a cross, a break, a pattern) counts for ${combo.window} bars` : '';
-  return `${rule}${events}: ${names.join(', ')}. The trade is taken on the first bar where that is true. Stop at the nearest pattern level in it, else under the last ${STOP_LOOKBACK} bars.`;
+  const extra = (combo.also || []).map((k) => CONDITION_BY_KEY.get(k)?.label || k);
+  const events = [...combo.conds, ...(combo.also || [])].some((k) => CONDITION_BY_KEY.get(k)?.kind === 'event') ? `; an event (a cross, a break, a pattern) counts for ${combo.window} bars` : '';
+  return `${rule}${events}: ${names.join(', ')}${extra.length ? `; and ${extra.length === 1 ? 'this must' : 'these must all'} hold too: ${extra.join(', ')}` : ''}. The trade is taken on the first bar where that is true. Stop at the nearest pattern level in it, else under the last ${STOP_LOOKBACK} bars.`;
 }
 
 /** A single condition, as a one-condition combination: it gives a signal each time it turns true. For ranking conditions. */

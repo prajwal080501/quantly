@@ -95,9 +95,10 @@ export function analyzeLab({ nifty1, stocks5 = null, params, base, from = null, 
     if (!combo) throw badRequest('That combination is not saved.', 'NOT_FOUND');
     const missing = missingData(combo, chart.have);
     if (missing.length) throw badRequest(`That combination needs ${[...new Set(missing)].join(' and ')}, which is not saved.`, 'NO_DATA');
-    ({ name, conds } = combo);
+    name = combo.name;
+    conds = [...combo.conds, ...(combo.also || [])];
     text = describeCombo(combo);
-    signalsWith = (extra) => comboSignals(chart, extra.length ? { ...combo, also: extra } : combo, { when: entryTestOf(params) }).filter(inRange);
+    signalsWith = (extra) => comboSignals(chart, extra.length ? { ...combo, also: [...(combo.also || []), ...extra] } : combo, { when: entryTestOf(params) }).filter(inRange);
   } else if (kind === 'pattern') {
     const t = TECHNIQUES.find((x) => x.key === id && available(x, { breadth: Boolean(breadth), flow: Boolean(flow) }));
     if (!t) throw badRequest('That pattern is not available on this data.', 'NOT_FOUND');

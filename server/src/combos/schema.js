@@ -6,6 +6,7 @@ export const comboSchema = new mongoose.Schema(
     id: { type: String, required: true },
     name: { type: String, required: true, maxlength: 60 },
     conds: { type: [String], default: [] },
+    also: { type: [String], default: undefined }, // extra checks that must all hold on top of the rule (an add-on to an "any N of M" combination)
     need: { type: Number, default: 1, min: 1 },
     window: { type: Number, default: 3, min: 1, max: 6 },
     on: { type: Boolean, default: true },
