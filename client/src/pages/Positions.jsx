@@ -8,8 +8,29 @@ import { api } from '../lib/api.js';
 import { useTick, useLtps } from '../lib/tickStore.js';
 import { formatPrice, formatPnl, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { ExitsSheet } from '../components/ExitsSheet.jsx';
+import { TradeReplaySheet } from '../components/TradeReplay.jsx';
 import { DataTable, Stack } from '../components/DataTable.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
+
+const shareClosedColumns = [
+  { key: 'when', header: 'Closed', render: (p) => formatTime(p.closedAt) },
+  {
+    key: 'stock',
+    header: 'Stock',
+    render: (p) => (
+      <Stack
+        top={
+          <span className="flex items-center gap-1.5 font-semibold">
+            {p.symbol} <Badge tone={p.direction === 'LONG' ? 'up' : 'down'}>{p.direction === 'LONG' ? 'Long' : 'Short'}</Badge>
+          </span>
+        }
+        sub={`Qty ${Math.max(p.buyQty, p.sellQty)}`}
+      />
+    ),
+  },
+  { key: 'px', header: 'Buy → Sell', align: 'right', render: (p) => `${formatPrice(p.buyQty ? p.buyValue / p.buyQty : null)} → ${formatPrice(p.sellQty ? p.sellValue / p.sellQty : null)}` },
+  { key: 'net', header: 'Net', align: 'right', render: (p) => <Stack top={<span className={`font-bold ${pnlClass(p.netPnl)}`}>{formatPnl(p.netPnl)}</span>} sub={`charges ${formatINR(p.charges)}`} /> },
+];
 
 function OpenRow({ p, onExit, onEdit, busy }) {
   const t = useTick(p.symbol);
@@ -61,6 +82,9 @@ export default function Positions() {
   const { data: closed } = useApi(today ? `/positions?status=CLOSED&day=${today}` : null, [version]);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [replay, setReplay] = useState(null);
+  const { data: past } = useApi('/positions?status=CLOSED&segment=EQ', [version]);
+  const earlier = (past?.positions || []).filter((p) => p.tradingDay !== today).sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt)).slice(0, 50);
   const positions = open?.positions || [];
   const ltpOf = useLtps(positions.map((p) => p.symbol));
 
@@ -136,35 +160,31 @@ export default function Positions() {
 
       {closed?.positions?.length > 0 && (
         <>
-          <h2 className="pt-2 text-sm font-semibold">Closed today ({closed.positions.length})</h2>
+          <h2 className="pt-2 text-sm font-semibold">
+            Closed today ({closed.positions.length}) <span className="text-[11px] font-normal text-muted">· tap one to replay it</span>
+          </h2>
           <Card className="overflow-hidden">
             <DataTable
-              columns={[
-                { key: 'when', header: 'Closed', render: (p) => formatTime(p.closedAt) },
-                {
-                  key: 'stock',
-                  header: 'Stock',
-                  render: (p) => (
-                    <Stack
-                      top={
-                        <span className="flex items-center gap-1.5 font-semibold">
-                          {p.symbol} <Badge tone={p.direction === 'LONG' ? 'up' : 'down'}>{p.direction === 'LONG' ? 'Long' : 'Short'}</Badge>
-                        </span>
-                      }
-                      sub={`Qty ${Math.max(p.buyQty, p.sellQty)}`}
-                    />
-                  ),
-                },
-                { key: 'px', header: 'Buy → Sell', align: 'right', render: (p) => `${formatPrice(p.buyQty ? p.buyValue / p.buyQty : null)} → ${formatPrice(p.sellQty ? p.sellValue / p.sellQty : null)}` },
-                { key: 'net', header: 'Net', align: 'right', render: (p) => <Stack top={<span className={`font-bold ${pnlClass(p.netPnl)}`}>{formatPnl(p.netPnl)}</span>} sub={`charges ${formatINR(p.charges)}`} /> },
-              ]}
+              onRowClick={setReplay}
+              columns={shareClosedColumns}
               rows={closed.positions}
               footer={{ when: 'Day total', net: formatPnl(closedNet) }}
             />
           </Card>
         </>
       )}
+      {earlier.length > 0 && (
+        <>
+          <h2 className="pt-2 text-sm font-semibold">
+            Earlier share trades <span className="text-[11px] font-normal text-muted">· tap one to replay it minute by minute</span>
+          </h2>
+          <Card className="overflow-hidden">
+            <DataTable onRowClick={setReplay} columns={[{ key: 'day', header: 'Day', render: (p) => <Stack top={p.tradingDay.slice(5)} sub={formatTime(p.closedAt).slice(0, 5)} /> }, ...shareClosedColumns.slice(1)]} rows={earlier} />
+          </Card>
+        </>
+      )}
       {editing && <ExitsSheet position={editing} onClose={() => setEditing(null)} />}
+      {replay && <TradeReplaySheet positionId={replay._id} title={replay.symbol} onClose={() => setReplay(null)} />}
     </div>
   );
 }
