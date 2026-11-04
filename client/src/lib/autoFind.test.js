@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alreadySaved, autoFindText, foundName, withFound } from './autoFind.js';
+import { addChecks, alreadySaved, autoFindText, changesCombo, foundName, withCopy, withFound, withUpdated } from './autoFind.js';
 
 const f = { conds: ['p_breakout', 'ema21_rising'], labels: ['Breakout of the last hour (5m)', 'EMA 21 rising'], trades: 12, winRate: 70, net: 4000, calls: { net: 4000, trades: 12 }, puts: { net: 0, trades: 0 }, train: { trades: 8, net: 2500, winRate: 75 }, test: { trades: 4, net: 1500, winRate: 50 } };
 const af = { tried: 40, trainEnd: '2026-10-10', trainDays: 20, testDays: 10, minTrain: 10, minTest: 5, baselines: [{ label: 'Breakout', conds: ['p_breakout'], train: { trades: 10, net: 100, winRate: 60 }, test: { trades: 5, net: -50, winRate: 40 } }], found: [f] };
@@ -41,5 +41,38 @@ describe('autoFindText', () => {
     expect(autoFindText({ ...af, found: [] })).toContain('Nothing made money');
     expect(autoFindText({ skipped: 'needs at least 15 trading days, this run had 9' })).toContain('needs at least 15');
     expect(autoFindText(null)).toBe('');
+  });
+});
+
+describe('adding checks to a saved combination', () => {
+  const saved = [
+    { id: 'all', name: 'Trend', conds: ['a', 'b'], need: 2, window: 3, on: true, side: 'CE', stopMode: 'atr', stopAtr: 1.5, stopPoints: 30, exits: { breakEven: 20 } },
+    { id: 'some', name: 'Any two', conds: ['a', 'b', 'c'], need: 2, window: 4, on: false },
+  ];
+  it('joins the checks of an "all must hold" combination and keeps everything else', () => {
+    expect(addChecks({ ...saved[0] }, ['x', 'a'])).toMatchObject({ conds: ['a', 'b', 'x'], need: 3, side: 'CE', stopMode: 'atr' });
+  });
+  it('keeps an "any N of M" rule and puts the add-on beside it as a must', () => {
+    expect(addChecks({ ...saved[1] }, ['x'])).toMatchObject({ conds: ['a', 'b', 'c'], need: 2, also: ['x'] });
+    expect(addChecks({ ...saved[1] }, ['x'], { all: true })).toMatchObject({ conds: ['a', 'b', 'c', 'x'], need: 4 });
+  });
+  it('updates one combination in place', () => {
+    const list = withUpdated(saved, 'some', ['x']);
+    expect(list).toHaveLength(2);
+    expect(list[0]).toMatchObject({ id: 'all', conds: ['a', 'b'] });
+    expect(list[1]).toMatchObject({ id: 'some', name: 'Any two', conds: ['a', 'b', 'c'], need: 2, also: ['x'], window: 4, on: false });
+  });
+  it('saves a copy with a new name, switched off', () => {
+    const list = withCopy(saved, 'all', ['x'], ['RSI (14) above 50 (fast)']);
+    expect(list).toHaveLength(3);
+    expect(list[2]).toMatchObject({ name: 'Trend + RSI (14) above 50', conds: ['a', 'b', 'x'], on: false, side: 'CE', exits: { breakEven: 20 } });
+    expect(list[2].id).toBeUndefined();
+    const again = withCopy([...saved, { id: 'c', name: 'Trend + RSI (14) above 50', conds: ['a'], need: 1 }], 'all', ['x'], ['RSI (14) above 50']);
+    expect(again.at(-1).name).toBe('Trend + RSI (14) above 50 (2)');
+  });
+  it('says when the picks are already in it', () => {
+    expect(changesCombo(saved[0], ['a'])).toBe(false);
+    expect(changesCombo({ ...saved[1], also: ['x'] }, ['x'])).toBe(false);
+    expect(changesCombo(saved[0], ['x'])).toBe(true);
   });
 });

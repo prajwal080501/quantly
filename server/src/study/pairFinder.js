@@ -21,7 +21,7 @@ export function pairStart(pairFirst, combos = [], { parts = false } = {}) {
   const bases = [];
   for (const c of pick) {
     if (parts) bases.push(...partsOf(c));
-    bases.push({ id: c.id, name: c.name, conds: c.conds });
+    bases.push({ id: c.id, name: c.name, conds: [...c.conds, ...(c.also || [])] });
   }
   return { first: null, bases: bases.slice(0, MAX_ANCHORS), missing: !pick.length };
 }

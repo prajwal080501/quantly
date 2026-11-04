@@ -10,6 +10,8 @@ import { bestOf } from '../../lib/research.js';
 import { Badge, Card } from '../ui.jsx';
 import { ComboResearch } from './ComboResearch.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
+import { AddOnActions } from '../AddOnActions.jsx';
+import { InfoButton } from '../CheckInfo.jsx';
 
 const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${formatPnl(p.net)}`;
 
@@ -117,7 +119,10 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
         <div key={a.key} className="space-y-1 rounded-lg bg-surface-2 p-2">
           <div className="flex items-start justify-between gap-2 text-xs">
             <span className="min-w-0 font-semibold">{a.part && <Badge tone="muted">Part of {a.of}</Badge>} {a.label}</span>
-            <span className={`num shrink-0 font-bold ${pnlClass(a.net)}`}>{formatPnl(a.net)}</span>
+            <span className="flex shrink-0 items-center gap-1">
+              <span className={`num font-bold ${pnlClass(a.net)}`}>{formatPnl(a.net)}</span>
+              <InfoButton keys={a.conds} title={a.label} />
+            </span>
           </div>
           <p className="num text-[11px] text-muted">
             Alone: {part(a)} · older {formatPnl(a.train.net)} · newer {formatPnl(a.test.net)}
@@ -129,7 +134,10 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
               <li key={f.conds.join('+')} className="space-y-1 py-2 text-xs">
                 <div className="flex items-start justify-between gap-2">
                   <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge></span>
-                  <span className={`num shrink-0 text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <span className={`num text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
+                    <InfoButton keys={f.conds.filter((k) => !a.conds.includes(k))} title={[].concat(f.added).join(' + ')} />
+                  </span>
                 </div>
                 <p className="num text-[11px] text-muted">
                   {f.trades} trades · {f.winRate ?? '–'}% win{a.winRate != null ? ` (alone ${a.winRate}%)` : ''} · {formatPnl(f.lift)} against alone · {callWord} {formatPnl(f.calls.net)} ({f.calls.trades}) · {putWord} {formatPnl(f.puts.net)} ({f.puts.trades})
@@ -140,6 +148,15 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
                 </p>
                 {alreadySaved(saved, f) ? (
                   <Badge tone="muted">Already in My combinations</Badge>
+                ) : a.key.startsWith('combo:') && !a.part ? (
+                  <div className="space-y-2">
+                    <AddOnActions saved={saved} comboId={a.key.slice(6)} add={f.conds.filter((k) => !a.conds.includes(k))} labels={[].concat(f.added)} endpoint={endpoint} all onSaved={() => own.reload?.()} />
+                    {endpoint === '/options' && best(f) && canAdd(saved) && (
+                      <button type="button" className="btn btn-sm w-full" disabled={busy != null || !saved} onClick={() => add(f, best(f).stop, best(f).exits)}>
+                        Save as new with its best stop and exits
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f)}>
