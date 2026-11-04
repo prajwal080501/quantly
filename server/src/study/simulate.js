@@ -26,6 +26,8 @@ export const breakEvenOf = (settings) => Number(settings?.breakEvenPoints) > 0 ?
 
 const roundTrip = (qty, price) => calculateCharges({ side: 'BUY', qty, price, segment: 'OPT' }).total + calculateCharges({ side: 'SELL', qty, price, segment: 'OPT' }).total;
 
+export const STOP_OFF_FLOOR = 0.5; // as live: with the stop off, a trade is still sold once it has lost half the premium paid
+
 export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread you cross buying and selling at the market
 
 /**
@@ -41,8 +43,10 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades
-  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null } = signal.exits ? { ...params, ...signal.exits } : params;
+  // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades; the no-stop test replaces them all
+  const merged = signal.exits ? { ...params, ...signal.exits } : params;
+  const noStop = params.noStop ?? null; // { at, keep } (at 0 = no lock): no stop loss, no trail, no break-even, only this lock and the floor
+  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null } = noStop ? { ...merged, trail: null, breakEven: 0, steps: noStop.at > 0 ? [{ at: noStop.at, keep: noStop.keep }] : [], target: 0 } : merged;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const prices = given && (!mixPrices || given.hasDay(istParts(new Date(signal.time * 1000)).dateKey)) ? given : null; // mixPrices: a day with no saved premiums is estimated, not skipped
@@ -90,7 +94,8 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   // the profit lock as rows: with `steps` (even none) those rows, otherwise the single row lockStart / lockGap; each row is sorted by its profit
   const rungs = (Array.isArray(steps) ? steps : [{ at: lockStart, keep: lockStart - lockGap }]).filter((r) => r.at > 0).sort((a, b) => a.at - b.at);
   // the hard stop, as live: the gross loss at which the loss after charges reaches the limit (never closer than half the limit)
-  const hardLoss = lossLimit > 0 ? -Math.max(HARD_STOP_MULT * lossLimit - roundTrip(qty, paid), lossLimit * 0.5) : -Infinity;
+  const hardLoss = noStop ? -STOP_OFF_FLOOR * paid * qty : lossLimit > 0 ? -Math.max(HARD_STOP_MULT * lossLimit - roundTrip(qty, paid), lossLimit * 0.5) : -Infinity;
+  const hardWhy = noStop ? 'FLOOR' : 'HARD';
   const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
   const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
   const day = istParts(entryAt).dateKey;
@@ -139,12 +144,12 @@ export function simulateTrade({ c1, byTime, signal, params }) {
       const open = profitAt(premiumAt(bar.open, bar.time, 'open'));
       const low = profitAt(premiumAt(against, bar.time, 'low'));
       if (open <= hardLoss || low <= hardLoss) {
-        exit = { time: bar.time, spot: open <= hardLoss ? bar.open : against, profit: Math.min(open <= hardLoss ? open : hardLoss, hardLoss), reason: 'HARD' };
+        exit = { time: bar.time, spot: open <= hardLoss ? bar.open : against, profit: Math.min(open <= hardLoss ? open : hardLoss, hardLoss), reason: hardWhy };
         break;
       }
     }
     worst = Math.min(worst, profitAt(premiumAt(against, bar.time, 'low')));
-    if (long ? bar.close < stopNow : bar.close > stopNow) {
+    if (!noStop && (long ? bar.close < stopNow : bar.close > stopNow)) {
       exit = { time: bar.time + 60, spot: bar.close, profit: closeProfit, reason: stopWhy };
       break;
     }
@@ -214,6 +219,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     best: round2(best),
     worst: round2(worst),
     rise,
+    ...(noStop ? { noStop: true } : {}),
   };
 }
 

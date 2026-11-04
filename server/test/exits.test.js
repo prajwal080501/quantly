@@ -221,3 +221,43 @@ test('the profit lock switch turns the lock off for new trades and back on, and 
   const opts = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body.options;
   assert.equal(opts.lockOn, true, 'options are separate from shares');
 });
+
+const stopSwitch = (off, symbol = 'RELIANCE') => api().put(`/api/positions/${symbol}/stop`).set(user.auth).send({ off });
+
+test('the stop switch: off swaps the stop for the emergency floor at half the money in it, refuses a new stop, and on puts the old stop back', async () => {
+  await buy({ qty: 100 }).expect(201);
+  await exits({ stopLoss: 990, trailPct: 1 }).expect(200);
+  const off = (await stopSwitch(true).expect(200)).body;
+  assert.equal(off.stopOff, true);
+  assert.equal(off.floor, 500);
+  assert.equal(off.stopLoss, 500, 'the stop is now the floor');
+  assert.equal(off.trailPct, null, 'the % trail goes with the stop');
+  await exits({ stopLoss: 980 }).expect(400);
+  await exits({ trailPct: 1 }).expect(400);
+  const list = (await api().get('/api/positions?status=OPEN').set(user.auth).expect(200)).body.positions;
+  assert.equal(list[0].stopOff, true);
+  assert.equal(list[0].floor, 500);
+  ctx.provider.setPrice('RELIANCE', 985); // past the old stop: still open
+  await settle();
+  assert.equal((await api().get('/api/positions?status=OPEN').set(user.auth).expect(200)).body.positions.length, 1);
+  await stopSwitch(false).expect(400); // the old stop 990 is above the price: switching on would sell at once
+  ctx.provider.setPrice('RELIANCE', 995);
+  await settle();
+  const on = (await stopSwitch(false).expect(200)).body;
+  assert.equal(on.stopOff, false);
+  assert.equal(on.stopLoss, 990);
+  assert.equal((await openLegs('STOPLOSS')).length, 1);
+});
+
+test('with the stop off, a lock set on the position replaces the Account ladder and still moves the floor into profit', async () => {
+  await api().put('/api/trade-defaults').set(user.auth).send({ shares: { steps: [{ at: 3000, keep: 2000 }, { at: 5000, keep: 4000 }] } }).expect(200);
+  await buy({ qty: 100 }).expect(201);
+  await stopSwitch(true).expect(200);
+  const set = (await exits({ lockTrigger: 500, lockAmount: 300 }).expect(200)).body;
+  assert.deepEqual(set.lockSteps, [], 'the lock for this position replaces the ladder');
+  ctx.provider.setPrice('RELIANCE', 1006); // +600: locks 400
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1004);
+  const back = (await stopSwitch(false).expect(200)).body;
+  assert.equal(back.stopLoss, 1004, 'switching on never moves the stop back below where the lock put it');
+});

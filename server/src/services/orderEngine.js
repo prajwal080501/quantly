@@ -29,7 +29,13 @@ export function isTriggered(order, ltp) {
  *
  * Emits 'update' ({ userId, kind: 'order'|'fill'|'squareoff', order, trades, message }).
  */
-const STEP_KEEP = 0.8; // past a target, keep the stop this share of the way from entry to it (leaves room for a pullback)
+const STEP_KEEP = 0.8;
+export const STOP_OFF_FLOOR = 0.5; // with the stop switched off, a position is still sold once it has lost this share of the money put into it
+
+/** The emergency floor of a position whose stop is off: the price at which it has lost STOP_OFF_FLOOR of the money in it. */
+export function stopOffFloor({ avgPrice, netQty }) {
+  return roundToTick(netQty > 0 ? Math.max(avgPrice * (1 - STOP_OFF_FLOOR), 0.05) : avgPrice * (1 + STOP_OFF_FLOOR));
+} // past a target, keep the stop this share of the way from entry to it (leaves room for a pullback)
 
 export class OrderEngine extends EventEmitter {
   constructor({ market, config, now = () => new Date() }) {
@@ -98,6 +104,15 @@ export class OrderEngine extends EventEmitter {
 
   setExits(userId, symbol, input = {}) {
     return this.locks.run(String(userId), () => this.#setExits(userId, symbol, input));
+  }
+
+  /**
+   * Switch one position's stop loss off or back on. Off: its stop (and % trail) is replaced by the emergency floor, a stop at half the
+   * money put in, and its profit lock keeps working, so the floor moves up into profit once the lock starts. On: the stop it had before
+   * comes back (or the Account stop, a fixed rupee loss, if it had none), never below where the lock has already moved it.
+   */
+  setStopOff(userId, symbol, off) {
+    return this.locks.run(String(userId), () => this.#setStopOff(userId, symbol, Boolean(off)));
   }
 
   /** One-tap exit of an open position at market. */
@@ -188,6 +203,9 @@ export class OrderEngine extends EventEmitter {
       if ((t == null) !== (a == null)) throw badRequest('Set both the profit trigger and the amount to lock, or clear both', 'INVALID_LOCK');
       if (t != null && !(a > 0 && t > a)) throw badRequest('The profit trigger must be larger than the amount you lock in', 'INVALID_LOCK');
     }
+    if (pos.stopOff && (stopLoss !== undefined || trailPct != null)) {
+      throw badRequest('The stop loss is switched off for this position. Switch it back on to set a stop or a trailing stop.', 'STOP_OFF');
+    }
     if (lockSteps !== undefined) {
       const ok = Array.isArray(lockSteps) && lockSteps.every((s, i) => s.keep > 0 && s.at > s.keep && (i === 0 || (s.at > lockSteps[i - 1].at && s.keep > lockSteps[i - 1].keep)));
       if (!ok) throw badRequest('Each profit rung must lock less than it needs, and rungs must rise', 'INVALID_LOCK');
@@ -250,11 +268,69 @@ export class OrderEngine extends EventEmitter {
     if (lockTrigger !== undefined || lockAmount !== undefined) {
       if (lockTrigger !== undefined) pos.lockTrigger = lockTrigger;
       if (lockAmount !== undefined) pos.lockAmount = lockAmount;
+      // a lock set on this one position replaces the Account ladder it was given, for this position only
+      if (pos.lockTrigger != null && lockSteps === undefined) pos.lockSteps = [];
       if (lockRatio !== undefined) pos.lockRatio = lockRatio;
       await pos.save();
       if (pos.lockTrigger != null) this.#watchTrail(pos);
     }
     this.emit('update', { userId: String(userId), kind: 'order', message: `Stop loss and target updated for ${symbol}` });
+    return this.exitsFor(userId, symbol);
+  }
+
+  async #setStopOff(userId, symbol, off) {
+    const pos = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
+    if (!pos) throw notFound('No open position in this stock');
+    const ltp = this.market.getLtp(symbol);
+    if (!ltp) throw unavailable('No live price for this stock yet. Try again in a moment.', 'NO_PRICE');
+    const long = pos.netQty > 0;
+    const qty = Math.abs(pos.netQty);
+    const sl = await Order.findOne({ user: userId, symbol, status: 'OPEN', role: 'STOPLOSS' });
+    const tg = await Order.findOne({ user: userId, symbol, status: 'OPEN', role: 'TARGET' });
+    const beyond = (a, b) => (long ? a > b : a < b); // a is further towards profit than b
+    const place = async (trigger) => {
+      if (sl) {
+        Object.assign(sl, { triggerPrice: trigger, qty });
+        await sl.save();
+        this.#addToBook(sl.toObject());
+        return;
+      }
+      const created = new Order({ user: userId, symbol, side: long ? 'SELL' : 'BUY', orderType: 'SL_M', triggerPrice: trigger, role: 'STOPLOSS', qty, ocoGroup: tg?.ocoGroup || `pos-${pos._id}`, tradingDay: this.marketStatus().istDate });
+      await created.save();
+      this.#addToBook(created.toObject());
+    };
+    if (off && !pos.stopOff) {
+      const floor = stopOffFloor(pos);
+      if (!beyond(ltp, floor)) throw badRequest('This position has already lost half the money in it. Exit it instead.', 'PAST_FLOOR');
+      // a stop the profit lock already moved into profit is a lock, not a stop loss: it stays
+      const locked = sl && beyond(sl.triggerPrice, pos.avgPrice);
+      pos.stopBefore = sl ? sl.triggerPrice : null;
+      if (!locked) await place(floor);
+      pos.stopOff = true;
+      if (pos.trailPct != null) {
+        pos.trailPct = null; // a % trail is a stop loss that follows the price; it goes with the stop
+        this.trailing.get(symbol)?.delete(String(pos._id));
+        if (pos.lockTrigger != null || pos.lockSteps?.length || pos.stepPrices?.length) this.#watchTrail(pos);
+      }
+      await pos.save();
+    } else if (!off && pos.stopOff) {
+      let normal = pos.stopBefore;
+      if (normal == null) {
+        const d = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), pos.segment, { index: parseOptionSymbol(symbol)?.index });
+        if (d.stopLoss > 0) normal = roundToTick(long ? Math.max(pos.avgPrice - d.stopLoss / qty, 0.05) : pos.avgPrice + d.stopLoss / qty);
+      }
+      const current = sl?.triggerPrice ?? null;
+      const want = normal == null ? current : current == null ? normal : beyond(current, normal) ? current : normal;
+      if (want != null && !beyond(ltp, want)) {
+        throw badRequest(`The price is already past the normal stop (₹${want.toFixed(2)}), so switching it on would sell at once. Use Exit to close it.`, 'PAST_STOP');
+      }
+      if (want == null && sl) await this.#cancel(sl, 'Stop switched back on: no stop set');
+      else if (want != null && want !== current) await place(want);
+      pos.stopOff = false;
+      pos.stopBefore = null;
+      await pos.save();
+    }
+    this.emit('update', { userId: String(userId), kind: 'stopoff', symbol, stopOff: pos.stopOff, message: pos.stopOff ? `Stop loss off for ${symbol}: only the emergency floor and profit lock remain` : `Stop loss back on for ${symbol}` });
     return this.exitsFor(userId, symbol);
   }
 
@@ -270,6 +346,8 @@ export class OrderEngine extends EventEmitter {
       lockTrigger: pos?.lockTrigger ?? null,
       lockAmount: pos?.lockAmount ?? null,
       lockSteps: pos?.lockSteps ?? [],
+      stopOff: Boolean(pos?.stopOff),
+      floor: pos?.stopOff ? stopOffFloor(pos) : null,
     };
   }
 

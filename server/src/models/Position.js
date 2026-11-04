@@ -26,6 +26,8 @@ const positionSchema = new mongoose.Schema(
     stepPrices: { type: [Number], default: [] }, // targets to run through: past each one the stop jumps to just short of it
     lockRatio: { type: Number, default: null }, // past lockTrigger, the lock grows by this share of every extra rupee of profit (null = trail lockTrigger - lockAmount behind)
     trailPct: { type: Number, default: null }, // stop loss follows the price at this % distance, only towards profit
+    stopOff: { type: Boolean, default: false }, // the user switched this position's stop loss off: only the emergency floor (half the money in it) and the profit lock remain
+    stopBefore: { type: Number, default: null }, // the stop it had when the stop was switched off, put back when it is switched on again
     openedAt: { type: Date, default: Date.now },
     closedAt: { type: Date },
     tradingDay: { type: String, required: true },

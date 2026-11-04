@@ -96,3 +96,11 @@ test('the lab service reads the candles once and ranks the checks once, so picki
   await teardown(ctx);
   await closeDb();
 });
+
+test('the no-stop test runs the same entries with no stop loss and shows them beside the normal stop', () => {
+  const r = runLab({ nifty1, params: { ...PARAMS, combos, noStop: { at: 2000, keep: 1500 } }, base: `combo:${combos[0].id}`, days: 10 });
+  assert.ok(r.noStop && r.normal, 'both results are given');
+  assert.equal(r.noStop.at, 2000);
+  assert.ok(r.entries.every((e) => e.noStop && e.reason !== 'STOP' && e.reason !== 'TRAIL' && e.reason !== 'BREAKEVEN'));
+  assert.equal(run().noStop, null, 'off by default');
+});
