@@ -20,7 +20,8 @@ describe('LadderTester', () => {
     );
     expect(screen.getByText(result.advice.text)).toBeTruthy();
     expect(screen.getByText('Your ladder now')).toBeTruthy();
-    fireEvent.click(screen.getByText('Use this ladder'));
+    expect(screen.getByText(/Stop trades from going/)).toBeTruthy();
+    fireEvent.click(screen.getAllByText('Use this ladder')[0]);
     const pick = result.rows.find((r) => r.key === result.advice.key);
     expect(api).toHaveBeenCalledWith('/trade-defaults', { method: 'PUT', body: { options: { steps: pick.steps, lockOn: true } } });
   });

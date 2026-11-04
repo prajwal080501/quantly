@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PriceBook } from '../src/study/priceBook.js';
 import { simulateTrade } from '../src/study/simulate.js';
 import { chaseRise, chaseSkip, chaseOf, candlesBefore } from '../src/options/chase.js';
-import { candidates, rungLadder, recommend, recommendChase, runLadderTest, measure, BE_KEEP } from '../src/study/ladderTest.js';
+import { candidates, rungLadder, recommend, recommendChase, recommendProtect, runLadderTest, measure, tradeOff, BE_KEEP } from '../src/study/ladderTest.js';
 import { ladderProblem } from '../src/models/TradeDefaults.js';
 
 const BASE = Date.UTC(2026, 9, 28, 3, 45) / 1000; // 28 Oct 2026, 09:15 IST
@@ -78,4 +78,23 @@ test('the tester runs every ladder through the trader, scores give-back and reve
   assert.equal(r.chase.rows[0].key, 'off');
   assert.ok(['change', 'keep', 'few'].includes(r.advice.verdict));
   assert.equal(measure([]).trades, 0);
+});
+
+test('the trade-off: trades saved from a loss against big winners cut short, on the same entries', () => {
+  const t = (entryTime, best, net) => ({ entryTime, side: 'CE', best, net });
+  const yours = [t(1, 1600, -2000), t(2, 2000, 4000), t(3, 500, -1000)];
+  const early = [t(1, 1600, 150), t(2, 2000, 150), t(3, 500, -1000)];
+  assert.deepEqual(tradeOff(yours, early), { saved: 1, savedRs: 2150, cut: 1, cutRs: -3850, matched: 3 });
+});
+
+test('the protect pick moves the stop to break-even by +1,500 and says what it saved and what it cost', () => {
+  const all = (net, reversed) => ({ trades: 20, net, reversed, reversedLoss: -4000, atBreakEven: 3 });
+  const cur = { key: 'current', steps: [{ at: 3500, keep: 3000 }], pickScore: 0, fit: { trades: 20, net: 0 }, check: { trades: 10, net: 100 }, all: all(100, 2) };
+  const late = { key: 'r2500-500', steps: [{ at: 2500, keep: 200 }], pickScore: 9000, fit: { trades: 20, net: 9000 }, check: { trades: 10, net: 900 }, all: all(9900, 1) };
+  const early = { key: 'r1500-750', steps: [{ at: 1500, keep: 200 }], pickScore: 500, fit: { trades: 20, net: 500 }, check: { trades: 10, net: 300 }, all: all(800, 0), tradeOff: { saved: 2, savedRs: 4300, cut: 1, cutRs: -3800 } };
+  const p = recommendProtect([cur, late, early], { splitOk: true });
+  assert.equal(p.key, 'r1500-750', 'a first rung over 1,500 is not a protect pick');
+  assert.equal(p.verdict, 'holds');
+  assert.match(p.text, /saved 2 trades/);
+  assert.match(p.text, /cut 1 big winner short/);
 });
