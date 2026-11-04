@@ -16,6 +16,7 @@ import { Switch } from './OptionsAutoCard.jsx';
 import { RealPricesSwitch } from '../study/RealPricesSwitch.jsx';
 import { INDEXES, indexOf, loadIndex, saveIndex } from '../../lib/indexes.js';
 import { EntrySheet } from '../EntrySheet.jsx';
+import { TrustBadge } from '../TrustBadge.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -41,6 +42,7 @@ function Technique({ t, bot }) {
             {t.key === 'bot' && <Badge tone="accent">Live now</Badge>}
             {t.combo && <Badge tone="accent">Yours</Badge>}
             <Badge tone={v.tone}>{v.text}</Badge>
+            <TrustBadge still trades={t.trades} winRate={t.winRate} net={t.net} />
           </div>
           <p className="num mt-1 text-[11px] text-muted">
             {t.trades} trades · {t.winRate ?? '–'}% win · avg win {formatPnl(t.avgWin)} · avg loss {formatPnl(t.avgLoss)}

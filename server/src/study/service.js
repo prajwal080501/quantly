@@ -1,3 +1,4 @@
+import { dayBiasOf } from '../options/dayBias.js';
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from './patterns.js';
@@ -118,6 +119,7 @@ export class StudyService {
       live,
       maxTrades: maxTrades ?? (live ? settings?.maxTrades : null) ?? 3,
       dailyLoss: live && settings ? (settings.budget * settings.dailyLossPct) / 100 : 0,
+      lossStreak: live ? settings?.lossStreak ?? 2 : 0,
       combos: normalizeCombos(settings?.combos),
       stopRule: stopRuleOf(settings, index),
       entryFrom: window.from,
@@ -125,6 +127,8 @@ export class StudyService {
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
+      withDay: dayBiasOf(settings),
+      comboStreak: settings?.comboStreak ?? 0,
       moved: movedOf(settings),
       autoFind,
       pairFind,
@@ -210,6 +214,7 @@ export class StudyService {
       live: true,
       maxTrades: settings?.maxTrades ?? 3,
       dailyLoss: settings ? (settings.budget * settings.dailyLossPct) / 100 : 0,
+      lossStreak: settings?.lossStreak ?? 2,
       combos: normalizeCombos(settings?.combos),
       comboEntries: modes.combos,
       patterns: modes.patterns,
@@ -221,6 +226,8 @@ export class StudyService {
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
+      withDay: dayBiasOf(settings),
+      comboStreak: settings?.comboStreak ?? 0,
       moved: movedOf(settings),
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,

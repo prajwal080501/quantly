@@ -8,6 +8,7 @@ import { OptionsAutoCard } from '../components/options/OptionsAutoCard.jsx';
 import { OptionsPositions } from '../components/options/OptionsPositions.jsx';
 import { OptionsHistory } from '../components/options/OptionsHistory.jsx';
 import { OptionsLog } from '../components/options/OptionsLog.jsx';
+import { TodayCheck } from '../components/options/TodayCheck.jsx';
 import { NiftyChart } from '../components/options/NiftyChart.jsx';
 import { Card, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -50,6 +51,7 @@ export default function Options() {
       <Segmented className="w-full" value={tab} onChange={setTab} options={TABS} />
       {tab === 'signal' && (
         <div className="space-y-3">
+          <TodayCheck index={index} />
           {data && <OptionsAutoCard data={data} reload={reload} />}
           <OptionsSignal index={index} onBought={() => setTab('positions')} />
         </div>

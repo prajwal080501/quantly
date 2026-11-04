@@ -13,7 +13,7 @@ import { chaseRise, candlesBefore, chaseSkip } from '../options/chase.js';
 // With a `target` (rupees per lot) there is no profit lock: the trade is sold the moment its profit reaches the target, or at the stop.
 
 export const EXIT_MIN = 15 * 60 + 15; // the 15:15 square-off, as live
-export const HARD_STOP_MULT = 1.3; // the live trader's premium stop behind the chart stop, for a fast gap
+export const HARD_STOP_MULT = 1; // the live trader's premium stop: the loss limit itself, charges included (it was 1.3 times the limit)
 /** The trailing stop a user's settings ask for, as the simulation and the live trader read it, or null when it is off. */
 export function trailOf(settings) {
   if (settings?.trailMode !== 'points') return null;
@@ -23,6 +23,8 @@ export function trailOf(settings) {
 
 /** Points after which the stop moves to the entry price (break-even), or 0 when it is off. */
 export const breakEvenOf = (settings) => Number(settings?.breakEvenPoints) > 0 ? Number(settings.breakEvenPoints) : 0;
+
+const roundTrip = (qty, price) => calculateCharges({ side: 'BUY', qty, price, segment: 'OPT' }).total + calculateCharges({ side: 'SELL', qty, price, segment: 'OPT' }).total;
 
 export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread you cross buying and selling at the market
 
@@ -77,7 +79,9 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   if (lossLimit > 0) {
     const atStop = premiumAt(signal.stop, entryBar.time) * (1 - SLIPPAGE);
     const perLot = Math.max(paid - atStop, 0.05) * lotSize;
-    const fits = Math.floor(lossLimit / perLot);
+    let fits = Math.floor(lossLimit / perLot);
+    // as live: the loss at the chart stop plus the round-trip charges must fit the limit
+    while (fits > 0 && fits * perLot + roundTrip(fits * lotSize, paid) > lossLimit) fits -= 1;
     lots = Math.min(fixedLots > 0 ? fixedLots : maxLots, fits);
     if (lots < 1) return { skipped: 'limit' };
   } else if (fixedLots > 0) lots = fixedLots;
@@ -85,7 +89,8 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   const targetProfit = target > 0 ? target * lots : 0;
   // the profit lock as rows: with `steps` (even none) those rows, otherwise the single row lockStart / lockGap; each row is sorted by its profit
   const rungs = (Array.isArray(steps) ? steps : [{ at: lockStart, keep: lockStart - lockGap }]).filter((r) => r.at > 0).sort((a, b) => a.at - b.at);
-  const hardLoss = lossLimit > 0 ? -HARD_STOP_MULT * lossLimit : -Infinity;
+  // the hard stop, as live: the gross loss at which the loss after charges reaches the limit (never closer than half the limit)
+  const hardLoss = lossLimit > 0 ? -Math.max(HARD_STOP_MULT * lossLimit - roundTrip(qty, paid), lossLimit * 0.5) : -Infinity;
   const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
   const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
   const day = istParts(entryAt).dateKey;

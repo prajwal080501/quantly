@@ -241,7 +241,7 @@ test('lots are sized so the loss at the chart stop stays within your limit, with
   const p = near.plan;
   assert.equal(p.lots, 2, 'a stop 15 points away loses about 650 a lot, so two lots fit a limit of 1,500');
   assert.ok(p.maxLoss <= 1500, `loss at the chart stop ${p.maxLoss}`);
-  assert.ok(Math.abs(p.worstCase - 1.3 * 1500) <= 70, `the hard stop loses about 1.3 times the limit, got ${p.worstCase}`);
+  assert.ok(p.worstCase + p.charges <= 1500 + 1 && p.worstCase + p.charges >= 1500 - 70, `the hard stop loses the limit after charges, no more, got ${p.worstCase} + ${p.charges}`);
   assert.ok(p.stopLoss < premium && p.stopLoss > 0);
   assert.equal(p.stopSpot, 24985);
   assert.equal(p.target1, undefined);
@@ -398,7 +398,7 @@ test('the trader buys a call sized to the loss limit, with a hard stop and the A
   const sl = await Order.findOne({ user: uid, symbol: sym, role: 'STOPLOSS', status: 'OPEN' });
   assert.equal(sl.triggerPrice, r.plan.stopLoss);
   const hard = (pos.avgPrice - sl.triggerPrice) * pos.netQty;
-  assert.ok(hard > r.plan.maxLoss && hard <= 1.3 * 1500 + 70, `the hard stop (${hard}) sits behind the chart stop (${r.plan.maxLoss}) and near 1.3 times the limit`);
+  assert.ok(hard >= r.plan.maxLoss && hard <= 1500 + 1, `the hard stop (${hard}) sits behind the chart stop (${r.plan.maxLoss}) and never loses more than the 1,500 limit`);
   assert.ok(r.plan.maxLoss <= 1500);
   assert.equal(await Order.countDocuments({ user: uid, symbol: sym, role: 'TARGET', status: 'OPEN' }), 0);
 

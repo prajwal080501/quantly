@@ -5,13 +5,14 @@ import { forIndex } from './indexSettings.js';
 import { readNifty, entryWindowOf, entryTest } from './signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
-import { breadthSeries } from '../study/optionsStudy.js';
+import { breadthSeries, lossesInARow } from '../study/optionsStudy.js';
 import { buildChart } from '../combos/conditions.js';
 import { comboSignals, normalizeCombos, comboFitsIndex } from '../combos/combos.js';
 import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
 import { chaseOf, chaseRise, chaseSkip } from './chase.js';
 import { movedOf, movedMeasures, movedSkip } from './moved.js';
+import { dayBiasOf, dayStand, dayBiasSkip, streakSkip } from './dayBias.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
@@ -22,6 +23,7 @@ const SCAN_MS = 15000;
 const COOLDOWN_AFTER_STOP_MIN = 20;
 const SAME_SIDE_COOLDOWN_MIN = 15;
 const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log at most this often
+export const PROBATION_TRADES = 10; // a combination is bought with 1 lot until it has this many closed live trades (switch: Options > Auto, "New combinations start small")
 const PATTERN_FRESH_MS = 4 * 60000; // a pattern is acted on only while the 5-minute bar that completed it closed under 4 minutes ago
 
 // The chart patterns the trader can buy on. The 30-day study (Options > Study) found these three made money on more than 12 trades each:
@@ -268,7 +270,10 @@ export class OptionTrader {
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
     const chart = this.#comboChart(read.index ?? DEFAULT_INDEX, bars);
-    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }).map((hit) => ({ ...hit, combo })));
+    // read the last few bars, as the study reads the whole chart, so a combination that fired 1 to 3 bars ago waits out its cooldown here too
+    // (live used to look at the newest bar alone and could buy a repeat signal the study never takes); only a signal on the newest bar is acted on
+    const newest = bars.length - 1;
+    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: Math.max(16, bars.length - 6), windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }).filter((h) => h.i === newest).map((hit) => ({ ...hit, combo, comboId: combo.id })));
     const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
     return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`, { minScore: settings.comboMinScore ?? 0 });
   }
@@ -285,7 +290,7 @@ export class OptionTrader {
     }
     const breadth = breadthSeries(bars, stocks5);
     const flow = turnoverSeries(bars, stocks5);
-    const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 8) });
+    const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 14) }); // patterns far enough back for the combination window of the bars read below
     this.comboCharts.set(index, { time: last, chart });
     return chart;
   }
@@ -305,7 +310,7 @@ export class OptionTrader {
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
       let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings, read.index));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.comboId ? { comboId: hit.comboId } : {}), atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
       if (minScore && !(sideScore >= minScore)) {
         result = await this.#skip(settings, side, `${label} ${hit.side}: the chart score ${sideScore == null ? 'is not known' : `is ${Math.round(sideScore)}`}, under the ${minScore} you asked for`);
         continue;
@@ -331,6 +336,11 @@ export class OptionTrader {
       if (settings.pausedOn && settings.pausedOn === this.engine.marketStatus().istDate) return stop('new automatic buys are paused for today (your switch in Options)');
       if (today.trades >= settings.maxTrades) return stop(`already took ${today.trades} option trades today`);
       if (today.pnl <= -(settings.budget * settings.dailyLossPct) / 100) return stop('daily loss limit reached');
+      const streak = settings.lossStreak ?? 2;
+      if (streak > 0) {
+        const lost = await this.lossesInARowToday(userId);
+        if (lost >= streak) return stop(`${lost} losing option trades in a row today: no new automatic buy until tomorrow (Account > Limits, "losses in a row")`);
+      }
       const wait = await this.#coolingDown(userId, side.type);
       if (wait) return stop(wait);
     }
@@ -339,6 +349,24 @@ export class OptionTrader {
     const held = new RegExp(settings.mirror ? `^${index}-.*-${side.type}$` : `-${side.type}$`);
     if (await Position.findOne({ user: userId, segment: 'OPT', status: 'OPEN', symbol: held })) return stop(`already holding a ${side.type}`);
 
+    if (!manual && settings.comboStreak > 0 && side.trigger?.kind) {
+      // the losing-streak pause: this entry (pattern or combination) lost comboStreak times in a row today
+      const done = await AutoLog.find({ user: userId, segment: 'OPT', day: this.engine.marketStatus().istDate, decision: 'PLACED', status: 'CLOSED', setup: side.trigger.kind }, 'outcome decidedAt').sort({ decidedAt: 1 }).lean();
+      const why = streakSkip(done.map((l) => ({ net: l.outcome?.netPnl ?? 0 })), settings.comboStreak);
+      if (why) return stop(`${side.trigger.kind}: ${why}`);
+    }
+    const bias = manual ? null : dayBiasOf(settings);
+    if (bias && read.c1) {
+      const now = Math.floor(this.now().getTime() / 1000);
+      const why = dayBiasSkip(dayStand(read.c1, { now: now - (now % 60), price: read.spot }), bias, { side: side.type, index: INDEXES[index].short });
+      if (why) return stop(why);
+    }
+    let probationLots = null;
+    if (!manual && side.comboId && settings.probation !== false) {
+      // a new combination proves itself with 1 lot first: its study result is a handful of trades, live is the real test
+      const n = await AutoLog.countDocuments({ user: userId, segment: 'OPT', decision: 'PLACED', status: 'CLOSED', $or: [{ 'detail.comboId': side.comboId }, { setup: side.trigger?.kind }] });
+      if (n < PROBATION_TRADES) probationLots = 1;
+    }
     const moved = manual ? null : movedOf(settings);
     if (moved && read.c1) {
       // the "already moved" check: how far the index has run in this trade's direction before now
@@ -357,7 +385,7 @@ export class OptionTrader {
       if (why) return stop(why);
     }
     const funds = await getFunds(userId, this.config.startingBalance);
-    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT', { index }), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
+    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT', { index }), available: funds.available, spentBudget: today.spent, now: this.now(), lots: probationLots ?? lots });
     if (planned.skipped) return stop(planned.skipped);
     const plan = planned.plan;
 
@@ -397,7 +425,7 @@ export class OptionTrader {
       order: order._id,
       position: position?._id,
       card: { checks: side.checks, gates: side.gates },
-      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, firstStopSpot: plan.stopSpot, ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
+      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, firstStopSpot: plan.stopSpot, ...(side.comboId ? { comboId: side.comboId } : {}), ...(probationLots ? { probation: true } : {}), ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
     });
     return { order, plan };
   }
@@ -414,6 +442,12 @@ export class OptionTrader {
     const side = type === 'CE' ? read.ce : read.pe;
     const settings = forIndex({ ...((await OptionSettings.findOne({ user: userId }).lean()) ?? new OptionSettings({ user: userId }).toObject()), user: userId }, index);
     return this.#enter(settings, read, side, { manual: true, lots });
+  }
+
+  /** How many of today's closed option trades lost in a row, counted back from the last one. */
+  async lossesInARowToday(userId) {
+    const closed = await Position.find({ user: userId, segment: 'OPT', status: 'CLOSED', tradingDay: this.engine.marketStatus().istDate }, 'realizedPnl charges closedAt').sort({ closedAt: 1 }).lean();
+    return lossesInARow(closed.map((p) => p.realizedPnl - p.charges));
   }
 
   async #coolingDown(userId, type) {
@@ -553,5 +587,27 @@ export class OptionTrader {
       closedAt: pos.closedAt,
     };
     await AutoLog.updateOne({ _id: log._id, status: 'OPEN' }, { status: 'CLOSED', outcome });
+    if (outcome.netPnl < 0 && !log.detail?.manual && log.detail?.comboId) await this.benchIfCold(userId, log.detail.comboId).catch((e) => logger.warn(`bench check failed: ${e.message}`));
+  }
+
+  /**
+   * The bench (Account > Limits): when a combination's last `benchAfter` live trades all lost, it is switched off by itself and keeps its
+   * place under My combinations with the day it was benched, so a combination that stopped working does not keep losing unwatched.
+   */
+  async benchIfCold(userId, comboId) {
+    const settings = await OptionSettings.findOne({ user: userId });
+    const n = settings?.benchAfter ?? 3;
+    if (!settings || !(n > 0)) return null;
+    const last = await AutoLog.find({ user: userId, segment: 'OPT', decision: 'PLACED', status: 'CLOSED', 'detail.comboId': comboId }, 'outcome.netPnl').sort({ decidedAt: -1 }).limit(n).lean();
+    if (last.length < n || last.some((e) => !(e.outcome?.netPnl < 0))) return null;
+    const list = normalizeCombos(settings.combos);
+    const combo = list.find((c) => c.id === comboId);
+    if (!combo || !combo.on) return null;
+    combo.on = false;
+    combo.benchedOn = this.engine.marketStatus().istDate;
+    settings.combos = list;
+    await settings.save();
+    logger.info(`combination ${combo.name} benched after ${n} losses in a row`);
+    return combo;
   }
 }

@@ -13,6 +13,7 @@ import { findPairs, findCombos, pairStart } from './pairFinder.js';
 import { runLadderTest, MIN_SPLIT_DAYS } from './ladderTest.js';
 import { runMovedTest } from './movedTest.js';
 import { movedMeasures, movedSkip, istMinutes } from '../options/moved.js';
+import { dayStand, dayBiasSkip, streakSkip } from '../options/dayBias.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -251,10 +252,18 @@ export const COOLDOWN_SAME_SIDE_MIN = 15; // and not the same side again this so
  * Why the live rules would not take a signal now, or null when they would. `trades` are the ones already taken (all days, oldest first).
  * The same checks as the live options trader: one call and one put open at a time, the pauses after a loss and after the same side, the trades a day and the daily loss limit.
  */
-export function liveSkip(s, trades, { maxPerDay, dailyLoss = 0 }) {
+/** How many of the last results (net rupees, oldest first) were losses in a row, counted back from the newest. */
+export function lossesInARow(nets) {
+  let n = 0;
+  for (let i = nets.length - 1; i >= 0 && nets[i] < 0; i--) n += 1;
+  return n;
+}
+
+export function liveSkip(s, trades, { maxPerDay, dailyLoss = 0, lossStreak = 0 }) {
   const day = dayKey(s.time);
   const today = trades.filter((t) => dayKey(t.entryTime) === day);
   if (today.length >= maxPerDay) return 'trades';
+  if (lossStreak > 0 && lossesInARow(today.filter((t) => t.exitTime <= s.time).sort((a, b) => a.exitTime - b.exitTime).map((t) => t.net)) >= lossStreak) return 'loss streak';
   if (trades.some((t) => t.side === s.side && t.exitTime > s.time)) return 'holding';
   if (dailyLoss > 0 && today.filter((t) => t.exitTime <= s.time).reduce((sum, t) => sum + t.net, 0) <= -dailyLoss) return 'loss limit';
   const last = today.filter((t) => t.exitTime <= s.time).sort((a, b) => b.exitTime - a.exitTime)[0];
@@ -297,7 +306,7 @@ export function tradesFor(signals, { c1, byTime, params }) {
     if (params.sideOnly && s.side !== params.sideOnly) continue; // the Sensex setup takes calls only or puts only
     const day = dayKey(s.time);
     if (live) {
-      const why = liveSkip(s, trades, { maxPerDay: cap, dailyLoss: params.dailyLoss ?? 0 });
+      const why = liveSkip(s, trades, { maxPerDay: cap, dailyLoss: params.dailyLoss ?? 0, lossStreak: params.lossStreak ?? 0 });
       if (why) {
         skips[why] = (skips[why] || 0) + 1;
         continue;
@@ -306,6 +315,22 @@ export function tradesFor(signals, { c1, byTime, params }) {
     // live buys a little after the 5-minute bar closes (the broker's candles refresh every 30 seconds and it looks every 15): one minute later here
     const at = live && byTime.has(s.time + LIVE_DELAY_SEC) ? s.time + LIVE_DELAY_SEC : s.time;
     const entry = byTime.get(at) != null ? c1[byTime.get(at)].open : s.close;
+    if (params.comboStreak > 0) {
+      // the losing-streak pause, as live: an entry (pattern or combination) that lost this many times in a row today rests until tomorrow
+      const mine = trades.filter((t) => t.technique === s.technique && dayKey(t.entryTime) === day && t.exitTime <= at);
+      if (streakSkip(mine, params.comboStreak)) {
+        skips.streak = (skips.streak || 0) + 1;
+        continue;
+      }
+    }
+    if (params.withDay) {
+      // the "with the day" check, as live: calls only above today's open and average, puts only below both
+      const i = byTime.get(at) ?? c1.length;
+      if (dayBiasSkip(dayStand(c1.slice(Math.max(0, i - 400), i), { now: at, price: entry }), params.withDay, { side: s.side })) {
+        skips.withDay = (skips.withDay || 0) + 1;
+        continue;
+      }
+    }
     const { stop, wide } = fitStop(s, entry, params.stopRule);
     if (wide) {
       skippedWide += 1;

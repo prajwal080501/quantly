@@ -140,10 +140,10 @@ test('with a loss limit the lots are sized to it like the live trader, a stop to
   assert.equal(sim(flat(), { side: 'CE', time: start, stop: 23900 }).lots, 1, 'without a limit it is one lot');
 
   const gap = minutes(24000, [0, 0, 0, 0, 0]);
-  gap[3] = { ...gap[3], low: 23925, close: 23960 }; // a spike down far enough to cost more than 1.3 times the limit, closing back above the stop
+  gap[3] = { ...gap[3], low: 23925, close: 23960 }; // a spike down far enough to cost more than the limit, closing back above the stop
   const t = simulateTrade({ c1: gap, byTime: index(gap), signal: { technique: 'x', side: 'CE', time: start, stop: 23955 }, params: { ...PARAMS, lossLimit: 1500, maxLots: 1 } });
   assert.equal(t.reason, 'HARD');
-  assert.ok(t.gross <= -1950 && t.gross > -2600, `gross ${t.gross}`);
+  assert.ok(t.net >= -1500 - 1 && t.net <= -1400, `the hard stop caps the loss at the 1,500 limit after charges, net ${t.net}`);
 });
 
 test('the summary counts wins, rupees, drawdown and where the trades ended', () => {
@@ -224,7 +224,7 @@ test('the study trades every technique on the same candles, with one lot, charge
   assert.ok(all.length > 20);
   for (const tr of all) {
     assert.ok(Math.abs(tr.net - (tr.gross - tr.charges)) < 0.02, JSON.stringify(tr));
-    assert.ok(tr.charges > 0 && tr.minutes >= 1 && ['STOP', 'LOCK', 'EOD'].includes(tr.reason));
+    assert.ok(tr.charges > 0 && tr.minutes >= 1 && ['STOP', 'LOCK', 'EOD', 'HARD'].includes(tr.reason));
     assert.ok(tr.entryTime >= nifty1.find((b) => b.time).time);
   }
   for (const t of r.techniques) assert.ok(t.trades <= t.signals, `${t.key} trades ${t.trades} signals ${t.signals}`);
