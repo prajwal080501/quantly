@@ -1,7 +1,7 @@
 import { prepare, findSignals, TECHNIQUES, BUFFER_ATR } from '../study/patterns.js';
 import { istParts } from '../market/marketHours.js';
 import * as S from './series.js';
-import { infoFor } from './info.js';
+import { explainCondition } from './explain.js';
 
 // The checks a combination is built from. Each is written once, for a call (a rise); a put is the same check on the mirrored
 // chart (prices negated, breadth turned round), so every condition has a put twin that cannot drift out of step with it.
@@ -228,7 +228,7 @@ for (const t of TECHNIQUES) {
 add('News', 'newsAgrees', 'News points the same way', 'A recent headline favours this trade and the price has not sold it off.', (c, i) => c.newsAt(i) === 1, { needs: 'news' });
 
 export const CONDITION_BY_KEY = new Map(CONDITIONS.map((c) => [c.key, c]));
-export const catalog = () => CONDITIONS.map((c) => ({ key: c.key, label: c.label, group: c.group, text: c.text, kind: c.kind, needs: c.needs, pattern: c.pattern || null, info: infoFor(c) }));
+export const catalog = () => CONDITIONS.map(({ key, label, group, text, kind, needs, pattern }) => ({ key, label, group, text, kind, needs, pattern: pattern || null, how: explainCondition({ key, label, group, text, kind, needs, pattern }) }));
 
 /** Which optional data a chart has, and so which conditions can be used on it. */
 export const usable = (cond, have) => !cond.needs || Boolean(have[cond.needs]);

@@ -11,6 +11,7 @@ import { stopRuleText, whatIfText } from '../lib/stops.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
 import { ImproveCombo } from '../components/ImproveCombo.jsx';
+import { InfoButton } from '../components/CheckInfo.jsx';
 import { ReviewStockSheet } from '../components/ReviewStockSheet.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -248,7 +249,10 @@ function SignalDetail({ s, pattern, exits, name = 'Nifty' }) {
         <div className="text-sm font-semibold">
           {clock(s.time)} · {pattern ? shortLabel(pattern.label) : s.technique} · {sideWord(s.side)}
         </div>
-        <Badge tone={s.side === 'CE' ? 'up' : 'down'}>{s.side === 'CE' ? 'Call' : 'Put'}</Badge>
+        <span className="flex shrink-0 items-center gap-1">
+          <Badge tone={s.side === 'CE' ? 'up' : 'down'}>{s.side === 'CE' ? 'Call' : 'Put'}</Badge>
+          <InfoButton keys={s.why?.length ? s.why.map((w) => w.key) : [String(s.technique).replace(/^check:/, '')]} title={pattern ? shortLabel(pattern.label) : String(s.technique)} />
+        </span>
       </div>
       {pattern && <p className="text-[11px] leading-snug text-muted">{pattern.text}</p>}
       <p className="text-xs">
@@ -420,20 +424,21 @@ function PatternsTab({ day }) {
       {stats.length > 0 && (
         <Card className="space-y-2 p-3">
           <div className="text-xs font-semibold">Which indicators worked on this day ({stats.length} fired)</div>
-          <p className="text-[11px] leading-snug text-muted">Every indicator on its own: a one-lot buy each time it turned true, with your stop and profit lock. Tap one to draw it on the chart, then tap its arrow for that entry's profit or loss. Your combinations that are switched off are in the chips above.</p>
+          <p className="text-[11px] leading-snug text-muted">Every indicator on its own: a one-lot buy each time it turned true, with your stop and profit lock. Tap one to draw it on the chart, then tap its arrow for that entry's profit or loss. Tap the i to read how it works and when it triggers. Your combinations that are switched off are in the chips above.</p>
           <ul className="divide-y divide-line">
             {shownStats.map((x) => {
               const c = (data.checks || []).find((k) => k.key === x.key);
               const on = watch.includes(`check:${x.key}`);
               return (
-                <li key={x.key}>
-                  <button type="button" onClick={() => toggle(`check:${x.key}`)} aria-pressed={on} className={`flex w-full items-center justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
+                <li key={x.key} className={`flex items-center gap-1 ${on ? 'bg-surface-2' : ''}`}>
+                  <button type="button" onClick={() => toggle(`check:${x.key}`)} aria-pressed={on} className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2 text-left text-xs">
                     <span className="min-w-0">
                       <span className="block font-medium">{c?.label ?? x.key}</span>
                       <span className="num block text-[11px] text-muted">{c?.group} · {x.trades} traded of {x.signals} · {x.trades ? Math.round((x.wins / x.trades) * 100) : 0}% win · Calls {formatPnl(x.calls)} · Puts {formatPnl(x.puts)}</span>
                     </span>
                     <span className={`num shrink-0 font-semibold ${pnlClass(x.net)}`}>{formatPnl(x.net)}</span>
                   </button>
+                  <InfoButton keys={x.key} title={c?.label ?? x.key} />
                 </li>
               );
             })}

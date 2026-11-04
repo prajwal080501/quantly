@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Wand2 } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, pnlClass } from '../lib/format.js';
-import { SaveComboButtons } from './SaveComboButtons.jsx';
 import { dayTotals, improveLine } from '../lib/patternReview.js';
 import { Badge, Card, Fold, Segmented } from './ui.jsx';
+import { AddOnActions } from './AddOnActions.jsx';
+import { InfoButton } from './CheckInfo.jsx';
 
 const MAX_ADD = 3;
 const TRY_GROUPS = [
@@ -57,7 +58,6 @@ function TryExits({ tries }) {
  */
 export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loading }) {
   const own = useApi('/options', []);
-  const busy = false;
   const [all, setAll] = useState(false);
   const saved = own.data?.settings?.combos;
   const rows = improve?.rows ?? [];
@@ -65,7 +65,7 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
   const toggle = (key) => setTrial({ ...trial, add: trial.add.includes(key) ? trial.add.filter((k) => k !== key) : [...trial.add, key].slice(-MAX_ADD) });
   const now = newEntries?.length ? dayTotals(newEntries) : null;
 
-
+  const pickedLabels = rows.filter((x) => trial.add.includes(x.key)).map((x) => x.label);
 
   return (
     <Card className="space-y-2 border-accent2/40 p-3">
@@ -111,14 +111,15 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
             {shown.map((x) => {
               const on = trial.add.includes(x.key);
               return (
-                <li key={x.key}>
-                  <button type="button" aria-pressed={on} onClick={() => toggle(x.key)} className={`flex w-full items-start justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
+                <li key={x.key} className={`flex items-start gap-1 ${on ? 'bg-surface-2' : ''}`}>
+                  <button type="button" aria-pressed={on} onClick={() => toggle(x.key)} className="flex min-w-0 flex-1 items-start justify-between gap-3 py-2 text-left text-xs">
                     <span className="min-w-0">
                       <span className="block font-medium">+ {x.label} <Badge tone="muted">{x.group}</Badge></span>
                       <span className="num block text-[11px] text-muted">{improveLine(x)}</span>
                     </span>
                     <span className={`num shrink-0 font-semibold ${pnlClass(x.gain)}`}>{x.gain >= 0 ? 'saves ' : 'costs '}{formatPnl(Math.abs(x.gain))}</span>
                   </button>
+                  <InfoButton keys={x.key} title={x.label} className="mt-1.5" />
                 </li>
               );
             })}
@@ -128,14 +129,7 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
               {all ? 'Show fewer' : `Show all ${rows.length}`}
             </button>
           )}
-          {trial.add.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <SaveComboButtons saved={saved} found={{ conds: [...improve.conds, ...trial.add], labels: [improve.name, ...rows.filter((x) => trial.add.includes(x.key)).map((x) => x.label)] }} baseId={trial.id} baseName={improve.name} onSaved={() => own.reload?.()} disabled={busy} />
-              <button type="button" className="btn btn-sm" onClick={() => setTrial({ ...trial, add: [] })}>
-                Clear picks
-              </button>
-            </div>
-          )}
+          {trial.add.length > 0 && <AddOnActions saved={saved} comboId={trial.id} add={trial.add} labels={pickedLabels} onSaved={() => { own.reload?.(); setTrial({ ...trial, add: [] }); }} onClear={() => setTrial({ ...trial, add: [] })} />}
           {improve.tries && improve.tries.now.trades > 0 && <TryExits tries={improve.tries} />}
           <p className="text-[11px] leading-snug text-muted">One day proves little: an indicator that skipped today's losers may also skip tomorrow's winners. To check it over 30 days or more, use Research &gt; Finder and start from this combination.</p>
         </>

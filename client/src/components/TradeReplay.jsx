@@ -1,164 +1,385 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Circle, Flag, LogIn, LogOut, ShieldCheck, TrendingDown, TrendingUp, XCircle } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
-import { formatPnl as rawPnl, formatPrice, pnlClass } from '../lib/format.js';
-import { EXIT_LABEL } from '../lib/options.js';
-import { replayPath, replayTime } from '../lib/replay.js';
-import { Badge, Sheet, Skeleton } from './ui.jsx';
+import { formatPnl, formatPrice, formatINR, pnlClass } from '../lib/format.js';
+import { checkpoints, chartScales, clockOf, minuteList, rupees } from '../lib/replay.js';
+import { Badge, Card, Segmented, Sheet, Skeleton } from './ui.jsx';
 
-const formatPnl = (v) => (v == null ? '—' : rawPnl(Math.round(v)));
+const STEP = 7; // pixels per minute
+const PRICE_H = 190;
+const PNL_H = 86;
+
 const TONE = { up: 'text-up', down: 'text-down', warn: 'text-warn', muted: 'text-muted' };
+const EVENT_ICON = { entry: LogIn, exit: LogOut, now: Circle, peak: TrendingUp, trough: TrendingDown, green: TrendingUp, red: TrendingDown, stop: ShieldCheck, breakEven: ShieldCheck, trail: ShieldCheck, spotHit: Flag };
+const EVENT_TONE = { entry: 'text-accent', exit: 'text-fg', peak: 'text-up', green: 'text-up', trough: 'text-down', red: 'text-down', stop: 'text-accent', breakEven: 'text-accent', trail: 'text-accent', spotHit: 'text-warn' };
 
-function Stat({ label, value, sub, tone = '' }) {
+/** Candles of the minutes around the trade, the stop as it moved, and one P&L bar per minute held. Drag sideways, tap a minute. */
+function ReplayChart({ candles, minutes, entry, exit, long, stopKey, entryLevel, picked, onPick }) {
+  const box = useRef(null);
+  const held = useMemo(() => new Map(minutes.map((m) => [m.time, m])), [minutes]);
+  const stops = minutes.map((m) => m[stopKey]).filter((v) => v != null);
+  const s = useMemo(() => chartScales(candles, { extra: [entryLevel, ...stops], height: PRICE_H }), [candles, entryLevel, stops.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  const maxPnl = Math.max(1, ...minutes.map((m) => Math.abs(m.pnl)));
+  const width = Math.max(candles.length * STEP + 8, 300);
+  const xOf = (t) => {
+    const i = candles.findIndex((c) => c.time >= t - (t % 60));
+    return (i < 0 ? candles.length - 1 : i) * STEP + STEP / 2;
+  };
+  const ex = xOf(exit.time);
+  const en = xOf(entry.time);
+  useEffect(() => {
+    if (box.current) box.current.scrollLeft = Math.max(0, en - 60);
+  }, [en]);
+  const mid = PRICE_H + PNL_H / 2;
+  // the stop as a stepped line over the held minutes
+  let path = '';
+  minutes.forEach((m, k) => {
+    const v = m[stopKey];
+    if (v == null) return;
+    const x = xOf(m.time);
+    path += `${path && minutes[k - 1]?.[stopKey] != null ? 'L' : 'M'}${x - STEP / 2},${s.y(v)} L${x + STEP / 2},${s.y(v)} `;
+  });
   return (
-    <div className="rounded-2xl bg-surface-2 p-2.5">
-      <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
-      <div className={`num whitespace-nowrap text-sm font-bold ${tone}`}>{value}</div>
-      {sub && <div className="num text-[10px] text-muted">{sub}</div>}
+    <div className="flex rounded-xl border border-line bg-surface-2/40">
+      <div className="num relative w-11 shrink-0 text-[9px] text-muted" style={{ height: PRICE_H + PNL_H }} aria-hidden="true">
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+          const v = s.max - f * (s.max - s.min);
+          return (
+            <span key={f} className="absolute right-1 -translate-y-1/2" style={{ top: s.y(v) }}>
+              {v >= 1000 ? Math.round(v) : v.toFixed(1)}
+            </span>
+          );
+        })}
+        <span className="absolute right-1 -translate-y-1/2 text-up" style={{ top: PRICE_H + 6 }}>{rupees(maxPnl)}</span>
+        <span className="absolute right-1 -translate-y-1/2" style={{ top: mid }}>0</span>
+        <span className="absolute right-1 -translate-y-1/2 text-down" style={{ top: PRICE_H + PNL_H - 6 }}>{rupees(-maxPnl)}</span>
+      </div>
+      <div ref={box} className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain" style={{ touchAction: 'pan-x pan-y' }}>
+        <svg width={width} height={PRICE_H + PNL_H} role="img" aria-label={`Price and profit each minute from ${clockOf(entry.time)} to ${clockOf(exit.time)}`}>
+          <rect x={Math.min(en, ex) - STEP / 2} y="0" width={Math.abs(ex - en) + STEP} height={PRICE_H + PNL_H} fill="var(--accent)" opacity="0.06" />
+          <line x1="0" x2={width} y1={PRICE_H} y2={PRICE_H} stroke="var(--border)" />
+          <line x1="0" x2={width} y1={mid} y2={mid} stroke="var(--muted)" strokeWidth="0.6" strokeDasharray="2 3" />
+          {entryLevel != null && <line x1="0" x2={width} y1={s.y(entryLevel)} y2={s.y(entryLevel)} stroke="var(--accent)" strokeDasharray="4 3" strokeWidth="1" />}
+          {path && <path d={path} fill="none" stroke="var(--down)" strokeWidth="1.4" />}
+          {candles.map((c, i) => {
+            const cx = i * STEP + STEP / 2;
+            const col = c.close >= c.open ? 'var(--up)' : 'var(--down)';
+            const top = s.y(Math.max(c.open, c.close));
+            const bot = s.y(Math.min(c.open, c.close));
+            const m = held.get(c.time);
+            const bh = m ? Math.max(1, (Math.abs(m.pnl) / maxPnl) * (PNL_H / 2 - 4)) : 0;
+            const sel = picked === c.time;
+            return (
+              <g key={c.time} onClick={() => onPick(sel ? null : c.time)} opacity={m || !minutes.length ? 1 : 0.45}>
+                <rect x={i * STEP} y="0" width={STEP} height={PRICE_H + PNL_H} fill={sel ? 'var(--accent)' : 'transparent'} opacity={sel ? 0.15 : 1} />
+                <line x1={cx} x2={cx} y1={s.y(c.high)} y2={s.y(c.low)} stroke={col} strokeWidth="1" />
+                <rect x={cx - 2.2} y={top} width="4.4" height={Math.max(bot - top, 1)} fill={col} />
+                {m && <rect x={cx - 2.4} y={m.pnl >= 0 ? mid - bh : mid} width="4.8" height={bh} fill={m.pnl >= 0 ? 'var(--up)' : 'var(--down)'} rx="1" />}
+                {i % 10 === 0 && (
+                  <text x={cx} y={PRICE_H - 4} fontSize="8.5" textAnchor="middle" fill="var(--muted)">
+                    {clockOf(c.time)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          <path d={long ? `M${en},${s.y(entryLevel ?? s.min) + 12} l-5,9 h10 z` : `M${en},${s.y(entryLevel ?? s.max) - 12} l-5,-9 h10 z`} fill="var(--accent)" />
+          <circle cx={ex} cy={s.y(exit.level ?? s.min)} r="4.5" fill="var(--text)" stroke="var(--bg, #000)" strokeWidth="1.5" />
+        </svg>
+      </div>
     </div>
   );
 }
 
-/** The profit or loss of each minute as a line, with the best so far (dashed), where the ladder kept the stop (green) and the hard stop (red). */
-function PnlChart({ rows, hardStopPnl }) {
-  const W = 640;
-  const H = 180;
-  const P = 6;
-  const path = replayPath(rows, { width: W, height: H, pad: P, hardStopPnl });
-  if (!path) return null;
+function Lessons({ items }) {
+  if (!items?.length) return null;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-44 w-full" role="img" aria-label="Profit or loss minute by minute">
-      <line x1={P} x2={W - P} y1={path.zero} y2={path.zero} className="stroke-line" strokeWidth="1" />
-      {path.hard != null && <line x1={P} x2={W - P} y1={path.hard} y2={path.hard} stroke="var(--color-down)" strokeDasharray="4 4" strokeWidth="1" opacity="0.7" />}
-      <path d={path.band} fill="var(--color-accent)" opacity="0.12" />
-      <path d={path.best} fill="none" stroke="var(--color-muted)" strokeDasharray="3 3" strokeWidth="1.2" />
-      {path.lock && <path d={path.lock} fill="none" stroke="var(--color-up)" strokeWidth="1.5" />}
-      <path d={path.close} fill="none" stroke="var(--color-accent)" strokeWidth="2" />
-    </svg>
+    <ul className="space-y-1.5 rounded-xl bg-surface-2/60 p-3 text-[13px] leading-snug">
+      {items.map((l) => (
+        <li key={l.text} className="flex gap-2">
+          <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${l.tone === 'down' ? 'bg-down' : l.tone === 'up' ? 'bg-up' : l.tone === 'warn' ? 'bg-warn' : 'bg-muted'}`} />
+          <span className={l.tone === 'muted' ? 'text-muted' : ''}>{l.text}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-/**
- * Trade replay: one share or option trade minute by minute (what it was worth at each minute's close, the best and worst inside it,
- * where the ladder kept the stop), how it was entered (which pattern or combination, the score, the stops) and why it ended as it did.
- * `id` is the position id.
- */
-export function TradeReplay({ id, onClose }) {
-  const { data, loading, error } = useApi(id ? `/replay/${id}` : null, [id]);
-  const [all, setAll] = useState(false);
-  const p = data?.position;
-  const e = data?.entry;
-  const rows = data?.rows || [];
-  const shown = all ? rows : rows.slice(0, 30);
+function MinuteTable({ data, picked, onPick }) {
+  const [keyOnly, setKeyOnly] = useState(data.minutes.length > 40);
+  const rows = useMemo(() => minuteList(data.minutes, data.events, { keyOnly }), [data, keyOnly]);
+  const option = data.segment === 'OPT';
+  const before = data.events.filter((e) => e.time < (data.minutes[0]?.time ?? 0));
   return (
-    <Sheet title={p ? `Replay · ${p.label}` : 'Trade replay'} subtitle={p ? `${p.direction === 'LONG' ? 'Bought' : 'Sold'} ${p.qty} at ${formatPrice(p.entry)} · held ${p.minutes} min` : 'Minute by minute'} onClose={onClose}>
-      {loading && !data && <Skeleton className="mt-3 h-64 w-full" />}
-      {error && <p className="mt-3 text-sm text-down">{error.message}</p>}
-      {p && (
-        <div className="space-y-4 pb-2 pt-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Net" value={formatPnl(p.net)} tone={pnlClass(p.net)} sub={`charges ₹${formatPrice(p.charges)}`} />
-            <Stat label="Entry → exit" value={`${formatPrice(p.entry)} → ${p.exit == null ? 'open' : formatPrice(p.exit)}`} sub={`${replayTime(p.openedAt)} → ${p.closedAt ? replayTime(p.closedAt) : 'now'}`} />
-            <Stat label="Best" value={formatPnl(rows.length ? Math.max(...rows.map((r) => r.pnlHigh)) : null)} tone="text-up" sub="inside a minute" />
-            <Stat label="Worst" value={formatPnl(rows.length ? Math.min(...rows.map((r) => r.pnlLow)) : null)} tone="text-down" sub={data.hardStopPnl != null ? `hard stop ${formatPnl(data.hardStopPnl)}` : 'no hard stop'} />
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
+        <h3 className="text-sm font-semibold">Minute by minute</h3>
+        <Segmented size="sm" value={keyOnly ? 'key' : 'all'} onChange={(v) => setKeyOnly(v === 'key')} options={[{ value: 'all', label: `All ${data.minutes.length}` }, { value: 'key', label: 'Key minutes' }]} />
+      </div>
+      {before.map((e) => (
+        <EventLine key={`${e.kind}${e.time}`} e={e} />
+      ))}
+      <div className="max-h-[55vh] overflow-y-auto">
+        <table className="w-full text-[13px]">
+          <thead className="sticky top-0 z-10 bg-surface-2 text-[10px] uppercase tracking-wider text-muted">
+            <tr>
+              <th className="px-2 py-1.5 text-left">Time</th>
+              <th className="px-1 py-1.5 text-right">{option ? 'Premium' : 'Price'}</th>
+              <th className="px-1 py-1.5 text-right">P&amp;L</th>
+              <th className="px-2 py-1.5 text-right">Stop</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((m) => (
+              <MinuteRow key={m.time} m={m} picked={picked === m.time} onPick={onPick} option={option} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function EventLine({ e }) {
+  const Icon = EVENT_ICON[e.kind] || Circle;
+  return (
+    <div className={`flex items-start gap-1.5 px-3 py-1 text-[12px] ${EVENT_TONE[e.kind] || 'text-muted'}`}>
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>{e.text}</span>
+    </div>
+  );
+}
+
+function MinuteRow({ m, picked, onPick, option }) {
+  return (
+    <>
+      <tr onClick={() => onPick(picked ? null : m.time)} className={`cursor-pointer border-t border-line/60 ${picked ? 'bg-accent-soft' : m.isBest ? 'bg-up/10' : m.isWorst ? 'bg-down/10' : ''}`}>
+        <td className="num px-2 py-1.5">
+          {clockOf(m.time)} <span className="text-[10px] text-muted">m{m.min}</span>
+        </td>
+        <td className="num px-1 py-1.5 text-right">
+          {formatPrice(m.close)}
+          {option && m.spot != null && <div className="text-[10px] text-muted">idx {Math.round(m.spot)}</div>}
+        </td>
+        <td className="num px-1 py-1.5 text-right">
+          <span className={`font-semibold ${pnlClass(m.pnl)}`}>{rupees(m.pnl)}</span>
+          {m.change != null && m.change !== 0 && <div className={`text-[10px] ${pnlClass(m.change)}`}>{rupees(m.change)}</div>}
+        </td>
+        <td className={`num px-2 py-1.5 text-right ${m.stopMoved ? 'font-semibold text-accent' : 'text-muted'}`}>
+          {m.stop != null ? formatPrice(m.stop) : '—'}
+          {m.spotStop != null && <div className="text-[10px] text-muted">idx {Math.round(m.spotStop)}</div>}
+        </td>
+      </tr>
+      {m.events.length > 0 && (
+        <tr>
+          <td colSpan={4} className="pb-1">
+            {m.events.map((e) => (
+              <EventLine key={`${e.kind}${e.time}`} e={e} />
+            ))}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function WhyTaken({ why, side }) {
+  if (!why) return null;
+  const kind = why.source?.kind;
+  return (
+    <Card className="space-y-2.5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Why it was taken</h3>
+        <Badge tone={why.manual ? 'muted' : 'accent'}>{why.manual ? 'You placed it' : kind === 'combo' ? 'Your combination' : kind === 'pattern' ? 'Chart pattern' : 'Auto trader'}</Badge>
+      </div>
+      {why.source?.name && (
+        <div className="text-[15px] font-semibold">
+          {why.source.name} <span className="text-xs font-normal text-muted">({side === 'CE' || side === 'BUY' ? 'up move' : 'down move'})</span>
+        </div>
+      )}
+      {why.text && <p className="text-xs leading-snug text-muted">{why.text}</p>}
+      {why.note && (
+        <p className="flex gap-1.5 rounded-lg bg-warn/15 px-2.5 py-2 text-xs">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden="true" />
+          {why.note}
+        </p>
+      )}
+      {why.conditions?.length > 0 && (
+        <div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+            Its checks at the entry bar{why.bar ? ` (${clockOf(why.bar.time)}-${clockOf(why.bar.time + 300)})` : ''}
+            {why.need && why.need < why.conditions.length ? ` · needs ${why.need} of ${why.conditions.length}` : ''}
           </div>
+          <ul className="space-y-1">
+            {why.conditions.map((c) => (
+              <li key={c.key} className="flex items-start gap-2 text-[13px]">
+                {c.held == null ? <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted" /> : c.held ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-up" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-down" />}
+                <span>
+                  <span className="font-medium">{c.label}</span>
+                  {c.text && <span className="block text-[11px] leading-snug text-muted">{c.text}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {why.study && (
+        <p className={`rounded-lg px-2.5 py-2 text-xs ${why.study.matched ? 'bg-up/10' : 'bg-warn/15'}`}>
+          <b>Live vs study: </b>
+          {why.study.text}
+          {!why.study.matched && why.study.times?.length > 0 && <> Study times that day: {why.study.times.map((t) => clockOf(t)).join(', ')}.</>}
+        </p>
+      )}
+      {why.readings?.length > 0 && (
+        <div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Chart readings at entry</div>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[12px]">
+            {why.readings.map((r) => (
+              <div key={r.label} className="min-w-0">
+                <dt className="text-[10px] text-muted">{r.label}</dt>
+                <dd className="num font-medium leading-snug">
+                  {typeof r.value === 'number' ? formatPrice(r.value) : r.value}
+                  {r.note && <span className="font-normal text-muted"> · {r.note}</span>}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+      {why.checks?.length > 0 && (
+        <div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Score {why.score ?? ''}: what added up</div>
+          <ul className="space-y-0.5 text-[12px]">
+            {why.checks.map((c) => (
+              <li key={c.label} className="flex justify-between gap-2">
+                <span className="min-w-0 text-muted">
+                  <b className="text-fg">{c.label}:</b> {c.text}
+                </span>
+                <span className={`num shrink-0 ${c.points >= c.max ? 'text-up' : c.points > 0 ? 'text-warn' : 'text-muted'}`}>
+                  {c.points}/{c.max}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {why.stopNote && <p className="text-[11px] text-muted">Stop: {why.stopNote}</p>}
+    </Card>
+  );
+}
 
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold">Why it ended like this</h4>
-            <ul className="space-y-1.5 text-xs leading-relaxed">
-              {data.diagnosis.map((d, i) => (
-                <li key={i} className={TONE[d.tone] || 'text-muted'}>
-                  {d.text}
-                </li>
+function PlanVsResult({ d }) {
+  const r = d.result;
+  const ladder = d.exits.lockSteps?.length ? d.exits.lockSteps.map((s) => `+${rupees(s.at).slice(1)} keeps ${rupees(s.keep).slice(1)}`).join(', ') : d.exits.lockTrigger ? `from +${rupees(d.exits.lockTrigger).slice(1)} keeps ${rupees(d.exits.lockAmount).slice(1)}` : 'none';
+  const rows = [
+    ['Entry', `${formatPrice(d.entry.price)} at ${clockOf(d.entry.time)}`],
+    ['First stop', d.entry.stop != null ? formatPrice(d.entry.stop) : 'none'],
+    ...(d.entry.stopSpot != null ? [['Chart stop (index)', formatPrice(d.entry.stopSpot)]] : []),
+    ['Planned risk', r.plannedRisk != null ? formatINR(r.plannedRisk) : '—'],
+    ['Profit lock', ladder],
+    ...(d.exits.breakEven ? [['Break-even', `after ${d.exits.breakEven} index points`]] : []),
+    ...(d.exits.indexTrail ? [['Trail', `${d.exits.indexTrail.points} points, from +${d.exits.indexTrail.start}`]] : []),
+    ['Exit', `${d.exit.price != null ? formatPrice(d.exit.price) : '—'} at ${clockOf(d.exit.time)} · ${d.exit.label}`],
+    ['Gross / charges', `${formatPnl(r.gross)} / ${formatINR(r.charges)}`],
+  ];
+  return (
+    <Card className="p-3">
+      <h3 className="mb-1.5 text-sm font-semibold">Plan against what happened</h3>
+      <dl className="divide-y divide-line/60 text-[13px]">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-3 py-1.5">
+            <dt className="text-muted">{k}</dt>
+            <dd className="num text-right">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
+  );
+}
+
+/** One trade (shares or options), played back one minute at a time, with why it was taken and how it ended. */
+export function TradeReplaySheet({ positionId, title, onClose }) {
+  const { data, error, loading } = useApi(positionId ? `/replay/${positionId}` : null, [positionId]);
+  const [picked, setPicked] = useState(null);
+  const [view, setView] = useState('trade');
+  const d = data;
+  const option = d?.segment === 'OPT';
+  const pickedRow = d && picked != null ? d.minutes.find((m) => m.time === picked) : null;
+  const long = d ? (option ? true : d.direction === 'LONG') : true;
+  const steps = d ? checkpoints(d.minutes) : [];
+  return (
+    <Sheet title={d ? d.label : title || 'Trade'} subtitle={d ? `${d.day} · ${d.source === 'AUTO' ? 'auto' : 'by hand'} · held ${d.result.minutes} min · ${d.exit.label}` : 'Loading the minutes…'} onClose={onClose}>
+      {loading && !d && (
+        <div className="space-y-3 pt-3">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      )}
+      {error && <p className="pt-3 text-sm text-down">{error.message}</p>}
+      {d && (
+        <div className="space-y-3 pt-3">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <div className="text-[11px] text-muted">Net after charges</div>
+              <div className={`num text-3xl font-bold ${pnlClass(d.result.net)}`}>{formatPnl(d.result.net)}</div>
+            </div>
+            <div className="num text-right text-xs text-muted">
+              {d.summary && (
+                <>
+                  <div>
+                    best <span className="text-up">{rupees(d.summary.peak)}</span>
+                    {d.summary.peakMin ? ` (m${d.summary.peakMin})` : ''}
+                  </div>
+                  <div>
+                    worst <span className="text-down">{rupees(d.summary.trough)}</span>
+                    {d.summary.troughMin ? ` (m${d.summary.troughMin})` : ''}
+                  </div>
+                </>
+              )}
+              <div>
+                {option ? `${d.lots ?? ''} lot · ` : ''}qty {d.qty}
+              </div>
+            </div>
+          </div>
+          {steps.length > 1 && (
+            <div className="num flex gap-1.5 overflow-x-auto pb-1 text-[11px]">
+              {steps.map((s, i) => (
+                <span key={s.label} className="flex shrink-0 items-center gap-1.5">
+                  {i > 0 && <span className="text-muted">→</span>}
+                  <span className="rounded-full bg-surface-2 px-2 py-0.5">
+                    <span className="text-muted">{s.label}</span> <b className={pnlClass(s.pnl)}>{rupees(s.pnl)}</b>
+                  </span>
+                </span>
               ))}
-            </ul>
-          </section>
-
-          {rows.length > 0 && (
-            <section className="space-y-1">
-              <h4 className="text-sm font-semibold">Profit or loss, minute by minute</h4>
-              <PnlChart rows={rows} hardStopPnl={data.hardStopPnl} />
-              <p className="text-[11px] text-muted">Blue: at each minute's close. Shaded: the best and worst inside the minute. Dashed: the best so far. Green: where your profit ladder kept the stop. Red dashed: the hard stop.</p>
-            </section>
+            </div>
           )}
-
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold">How it was entered</h4>
-            {e ? (
-              <div className="space-y-1.5 text-xs text-muted">
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge tone="accent">{e.source === 'manual' ? 'Bought by hand' : 'Automatic'}</Badge>
-                  {e.setup && <Badge tone="muted">{e.setup}</Badge>}
-                  {e.score != null && <Badge tone="muted">score {Math.round(e.score)}</Badge>}
-                  {e.probation && <Badge tone="warn">1 lot: new combination</Badge>}
-                  {e.outcome?.exitReason && <Badge tone={p.net > 0 ? 'up' : 'down'}>{EXIT_LABEL[e.outcome.exitReason] || e.outcome.exitReason}</Badge>}
-                </div>
-                <p className="num">
-                  {e.lots ? `${e.lots} lot · ` : ''}
-                  {e.stopLoss != null ? `hard stop ₹${formatPrice(e.stopLoss)}` : 'no hard stop'}
-                  {e.stopSpot != null ? ` · chart stop at index ${formatPrice(e.stopSpot)}` : ''}
-                  {e.entrySpot != null ? ` · index ${formatPrice(e.entrySpot)} at the buy` : ''}
-                  {e.iv != null ? ` · IV ${e.iv}%` : ''}
-                </p>
-                {e.stopNote && <p>Stop: {e.stopNote}</p>}
-                {data.ladder.length > 0 && <p className="num">Ladder: {data.ladder.map((r) => `+₹${Math.round(r.at)} keeps ₹${Math.round(r.keep)}`).join(' · ')}</p>}
-                {e.checks?.length > 0 && (
-                  <ul className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
-                    {e.checks.map((c) => (
-                      <li key={c.id} className="flex justify-between gap-2 py-0.5">
-                        <span className="min-w-0">
-                          <b className="text-fg">{c.label}:</b> {c.text}
-                        </span>
-                        <span className={`num shrink-0 ${c.points >= c.max ? 'text-up' : c.points > 0 ? 'text-warn' : 'text-muted'}`}>
-                          {c.points}/{c.max}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+          <Lessons items={d.lessons} />
+          {d.chart.length > 0 && (
+            <div className="space-y-1.5">
+              {option && d.indexChart.length > 0 && (
+                <Segmented size="sm" className="w-full" value={view} onChange={setView} options={[{ value: 'trade', label: 'Option premium' }, { value: 'index', label: 'Index chart' }]} />
+              )}
+              <div className="num min-h-4 text-[11px] text-muted">
+                {pickedRow ? (
+                  <>
+                    {clockOf(pickedRow.time)} · minute {pickedRow.min} · {option ? 'premium' : 'price'} {formatPrice(pickedRow.close)} · P&amp;L <b className={pnlClass(pickedRow.pnl)}>{rupees(pickedRow.pnl)}</b>
+                    {pickedRow.stop != null && ` · stop ${formatPrice(pickedRow.stop)}`}
+                  </>
+                ) : (
+                  'Bars under the candles are the P&L each minute. The red line is the stop. Tap a minute.'
                 )}
               </div>
-            ) : (
-              <p className="text-xs text-muted">Placed by hand from the order screen: there is no pattern or score behind it.</p>
-            )}
-          </section>
-
-          {rows.length > 0 && (
-            <section className="space-y-2">
-              <h4 className="text-sm font-semibold">Each minute</h4>
-              <div className="max-h-[50vh] overflow-auto rounded-2xl border border-line">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-surface-2 text-[10px] uppercase tracking-wider text-muted">
-                    <tr>
-                      <th className="px-2 py-1.5 text-left">Min</th>
-                      <th className="px-2 py-1.5 text-left">Time</th>
-                      <th className="px-2 py-1.5 text-right">Price</th>
-                      <th className="px-2 py-1.5 text-right">P&L</th>
-                      <th className="px-2 py-1.5 text-right">Best</th>
-                      <th className="px-2 py-1.5 text-right">Stop keeps</th>
-                      {data.index && <th className="px-2 py-1.5 text-right">Index</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="num">
-                    {shown.map((r) => (
-                      <tr key={r.time} className="border-t border-line">
-                        <td className="px-2 py-1">{r.minute}</td>
-                        <td className="px-2 py-1">{replayTime(r.time * 1000)}</td>
-                        <td className="px-2 py-1 text-right">{formatPrice(r.close)}</td>
-                        <td className={`px-2 py-1 text-right font-semibold ${pnlClass(r.pnl)}`}>{formatPnl(r.pnl)}</td>
-                        <td className="px-2 py-1 text-right text-muted">{formatPnl(r.best)}</td>
-                        <td className="px-2 py-1 text-right text-muted">{r.lock == null ? '—' : formatPnl(r.lock)}</td>
-                        {data.index && <td className="px-2 py-1 text-right text-muted">{r.index == null ? '—' : formatPrice(r.index)}</td>}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {rows.length > 30 && (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAll(!all)}>
-                  {all ? 'Show the first 30 minutes' : `Show all ${rows.length} minutes`}
-                </button>
+              {view === 'index' && option ? (
+                <ReplayChart candles={d.indexChart} minutes={d.minutes} entry={d.entry} exit={{ ...d.exit, level: d.minutes.at(-1)?.spot }} long={d.side === 'CE'} stopKey="spotStop" entryLevel={d.entry.spot} picked={picked} onPick={setPicked} />
+              ) : (
+                <ReplayChart candles={d.chart} minutes={d.minutes} entry={d.entry} exit={{ ...d.exit, level: d.exit.price }} long={long} stopKey="stop" entryLevel={d.entry.price} picked={picked} onPick={setPicked} />
               )}
-            </section>
+            </div>
           )}
+          {d.minutes.length > 0 && <MinuteTable data={d} picked={picked} onPick={setPicked} />}
+          <WhyTaken why={d.why} side={d.side} />
+          <PlanVsResult d={d} />
+          <p className="text-center text-[11px] text-muted">{d.note}</p>
         </div>
       )}
     </Sheet>

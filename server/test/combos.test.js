@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CONDITIONS, GROUPS, buildChart, holds, usable, catalog } from '../src/combos/conditions.js';
-import { comboSignals, normalizeCombo, normalizeCombos, singleCombo, missingData, describeCombo, MAX_CONDITIONS } from '../src/combos/combos.js';
+import { comboSignals, normalizeCombo, normalizeCombos, singleCombo, missingData, describeCombo, holdsAt, MAX_CONDITIONS } from '../src/combos/combos.js';
 import { verdictOf, halvesOf, MIN_TRADES } from '../src/combos/verdict.js';
 import * as S from '../src/combos/series.js';
 import { shareStop, shareIdeas, shareChart, bars5Of, newsDirection } from '../src/combos/shares.js';
@@ -879,4 +879,37 @@ test('the trades a study lists carry what the View popup needs: the sell premium
     assert.ok(t.why.every((w) => w.label && w.text && typeof w.held === 'boolean'));
   }
   assert.ok(mine.recent.length <= 20);
+});
+
+test('add-on checks (also) must hold on top of an "any N of M" rule; with "all" they join the checks', () => {
+  const anyTwo = normalizeCombo({ name: 'Any two', conds: ['emaFastOverSlow', 'rsiAbove50', 'macdAbove'], need: 2, also: ['aboveVwap', 'rsiAbove50', 'nope'] });
+  assert.deepEqual(anyTwo.also, ['aboveVwap']); // unknown and repeated checks dropped
+  assert.equal(anyTwo.need, 2);
+  const all = normalizeCombo({ name: 'All', conds: ['emaFastOverSlow', 'rsiAbove50'], need: 2, also: ['macdAbove'] });
+  assert.deepEqual(all.conds, ['emaFastOverSlow', 'rsiAbove50', 'macdAbove']);
+  assert.equal(all.need, 3);
+  assert.equal(all.also, undefined);
+  assert.match(describeCombo(anyTwo), /must hold too: Price above VWAP/);
+  assert.deepEqual(missingData(anyTwo, {}), ['flow']);
+
+  const bars = tape(3);
+  const chart = buildChart(bars, { flow: flowOf(bars) });
+  const plain = comboSignals(chart, { ...anyTwo, also: undefined });
+  const withAlso = comboSignals(chart, anyTwo);
+  const never = comboSignals(chart, { ...anyTwo, also: ['midday', 'morning'] }); // can never both hold
+  assert.ok(plain.length > 0);
+  for (const sig of withAlso) assert.ok(holdsAt(chart, 'aboveVwap', sig.side === 'CE' ? 1 : -1, sig.i)); // every entry has the add-on holding
+  assert.equal(never.length, 0);
+});
+
+test('every check has plain-words help: what it measures or the pattern idea, when it triggers, and the put side', () => {
+  for (const c of catalog()) {
+    assert.ok(c.how, c.key);
+    assert.ok(c.how.what || c.how.idea, `no explanation for ${c.key}`);
+    assert.ok(c.how.when.startsWith(c.label), c.key);
+    assert.ok(c.how.put && c.how.counts, c.key);
+  }
+  const vol = catalog().find((c) => c.key === 'volHigh');
+  assert.match(vol.how.put, /same for a call and a put/);
+  assert.match(catalog().find((c) => c.key === 'macdCross').how.counts, /event/);
 });

@@ -7,7 +7,7 @@ import { formatPnl, pnlClass } from '../../lib/format.js';
 import { alreadySaved, canAdd, withFound } from '../../lib/autoFind.js';
 import { Badge, Card } from '../ui.jsx';
 import { TrustBadge } from '../TrustBadge.jsx';
-import { InfoButton } from '../InfoButton.jsx';
+import { InfoButton } from '../CheckInfo.jsx';
 
 const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${formatPnl(p.net)}`;
 
@@ -64,7 +64,7 @@ export function AutoFound({ af, endpoint = '/options', title = 'Found for you' }
           return (
             <li key={f.conds.join('+')} className="space-y-1 py-2 text-xs">
               <div className="flex items-start justify-between gap-2">
-                <span className="min-w-0 font-semibold">{f.labels.join(' + ')} {f.conds.map((k) => <InfoButton key={k} cond={k} />)} <TrustBadge trades={f.trades} winRate={f.winRate} net={f.net} /></span>
+                <span className="min-w-0 font-semibold">{f.labels.join(' + ')} <InfoButton keys={f.conds} title={f.labels.join(' + ')} /> <TrustBadge trades={f.trades} winRate={f.winRate} net={f.net} /></span>
                 <span className={`num shrink-0 text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
               </div>
               <p className="num text-[11px] text-muted">

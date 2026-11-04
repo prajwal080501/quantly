@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { formatPnl, pnlClass } from '../../lib/format.js';
 import { VERDICT } from '../../lib/combos.js';
 import { Badge, Card, Segmented } from '../ui.jsx';
-import { InfoButton } from '../InfoButton.jsx';
+import { InfoButton } from '../CheckInfo.jsx';
 import { TrustBadge } from '../TrustBadge.jsx';
 
 const SHOW = 12;
@@ -46,7 +46,7 @@ export function IndicatorRanking({ rows, skipped = [], callWord = 'Calls', putWo
               <li key={r.key} className="space-y-0.5 py-2 text-xs">
                 <div className="flex items-start justify-between gap-2">
                   <span className="min-w-0 font-semibold">
-                    {r.label} <InfoButton cond={r.key} /> <Badge tone={VERDICT[r.verdict].tone}>{VERDICT[r.verdict].text}</Badge> <TrustBadge trades={r.trades} winRate={r.winRate} net={r.net} />
+                    {r.label} <InfoButton keys={r.key} title={r.label} /> <Badge tone={VERDICT[r.verdict].tone}>{VERDICT[r.verdict].text}</Badge> <TrustBadge trades={r.trades} winRate={r.winRate} net={r.net} />
                   </span>
                   <span className={`num shrink-0 text-sm font-bold ${pnlClass(r.net)}`}>{formatPnl(r.net)}</span>
                 </div>

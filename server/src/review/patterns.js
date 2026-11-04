@@ -119,16 +119,18 @@ const entryKey = (s) => `${s.time}|${s.side}`;
 function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1, byTime, params, stopRule, exitMin }) {
   const base = combos.find((c) => c.id === trial.id);
   if (!base || missingData(base, chart.have).length) return { id: trial.id, missing: true };
-  const all = (conds) => ({ id: 'trial', name: base.name, conds, need: conds.length, window: base.window, stopMode: base.stopMode, stopAtr: base.stopAtr, stopPoints: base.stopPoints, exits: base.exits });
+  const own = [...base.conds, ...(base.also || [])];
+  // the combination as it trades live (its rule, its side, its stop and exits), with `extra` checks that must all hold on top
+  const withAdd = (extra) => ({ id: 'trial', name: base.name, conds: base.conds, need: base.need, also: [...(base.also || []), ...extra], window: base.window, side: base.side, stopMode: base.stopMode, stopAtr: base.stopAtr, stopPoints: base.stopPoints, exits: base.exits });
   const entriesOf = (combo) => comboSignals(chart, combo, { label: 'trial', when: entryTestOf(params) }).filter((x) => dayOf(x.time - 300) === day);
-  const baseSigs = entriesOf(all(base.conds));
+  const baseSigs = entriesOf(withAdd([]));
   const net = new Map(baseSigs.map((x) => [entryKey(x), lockNet(x)]));
   const sum = (xs) => round2(xs.reduce((a, n) => a + n, 0));
   const baseNets = [...net.values()].filter((n) => n != null);
   const rows = [];
   for (const cond of CONDITIONS) {
-    if (base.conds.includes(cond.key) || !usable(cond, chart.have) || cond.needs === 'news') continue;
-    const sigs = entriesOf(all([...base.conds, cond.key]));
+    if (own.includes(cond.key) || !usable(cond, chart.have) || cond.needs === 'news') continue;
+    const sigs = entriesOf(withAdd([cond.key]));
     const keep = new Set(sigs.map(entryKey));
     const skipped = baseSigs.filter((x) => !keep.has(entryKey(x))).map((x) => net.get(entryKey(x))).filter((n) => n != null);
     const kept = baseSigs.filter((x) => keep.has(entryKey(x))).map((x) => net.get(entryKey(x))).filter((n) => n != null);
@@ -138,15 +140,15 @@ function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1,
     rows.push({ key: cond.key, label: cond.label, group: cond.group, kept: { trades: kept.length, wins: kept.filter((n) => n > 0).length, net: sum(kept) }, skipped: { trades: skipped.length, losers: losers.length, losersNet: sum(losers), winners: skipped.length - losers.length, winnersNet: sum(skipped.filter((n) => n > 0)) }, added: { trades: added.length, net: sum(added) }, gain: round2(-sum(skipped) + sum(added)) });
   }
   rows.sort((a, b) => b.gain - a.gain);
-  const add = (trial.add || []).filter((k) => CONDITION_BY_KEY.has(k) && !base.conds.includes(k) && usable(CONDITION_BY_KEY.get(k), chart.have));
+  const add = (trial.add || []).filter((k) => CONDITION_BY_KEY.has(k) && !own.includes(k) && usable(CONDITION_BY_KEY.get(k), chart.have));
   if (add.length) {
     const key = `trial:${base.id}`;
-    const conds = [...base.conds, ...add];
-    patterns.push({ key, label: `Trial: ${base.name} + ${add.map((k) => CONDITION_BY_KEY.get(k).label).join(' + ')}`, text: describeCombo(all(conds)), trial: true });
-    for (const x of entriesOf(all(conds))) found.push({ ...x, technique: key, why: heldConditions(chart, all(conds), x.side === 'CE' ? 1 : -1, x.i) });
+    const trialCombo = withAdd(add);
+    patterns.push({ key, label: `Trial: ${base.name} + ${add.map((k) => CONDITION_BY_KEY.get(k).label).join(' + ')}`, text: describeCombo(trialCombo), trial: true });
+    for (const x of entriesOf(trialCombo)) found.push({ ...x, technique: key, why: heldConditions(chart, trialCombo, x.side === 'CE' ? 1 : -1, x.i) });
   }
   // The same entries (with the picks added) traded again with other stops, profit ladders, trailing stops and break-even: only one thing changes per row
-  const picked = [...base.conds, ...add];
+  const picked = withAdd(add);
   // `own`: keep the combination's own exits (as it trades live); a row that tries other exits sets them aside
   const tradedWith = (sigs, rule, set, own = false) => {
     const nets = sigs
@@ -161,7 +163,7 @@ function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1,
       .filter((n) => n != null);
     return { trades: nets.length, wins: nets.filter((n) => n > 0).length, net: sum(nets), worst: nets.length ? round2(Math.min(...nets)) : 0 };
   };
-  const pickedSigs = entriesOf(all(picked));
+  const pickedSigs = entriesOf(picked);
   const now = tradedWith(pickedSigs, stopRule, {}, true);
   const tries = {
     of: add.length ? 'picks' : 'combination',
@@ -171,7 +173,7 @@ function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1,
       .map((v) => ({ key: v.key, group: v.group, label: v.label.replace(/^Stop at /, 'Stop '), ...tradedWith(pickedSigs, v.set.stopRule ?? stopRule, v.set) }))
       .map((r) => ({ ...r, gain: round2(r.net - now.net) })),
   };
-  return { id: base.id, name: base.name, conds: base.conds, add, tries, base: { trades: baseNets.length, wins: baseNets.filter((n) => n > 0).length, net: sum(baseNets) }, rows: rows.slice(0, 40) };
+  return { id: base.id, name: base.name, conds: own, add, tries, base: { trades: baseNets.length, wins: baseNets.filter((n) => n > 0).length, net: sum(baseNets) }, rows: rows.slice(0, 40) };
 }
 
 const WARM_BARS = 150; // earlier 5-minute bars sent with a day, so the chart's indicators have context from its first candle

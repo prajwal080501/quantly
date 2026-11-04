@@ -8,15 +8,29 @@ import { api } from '../lib/api.js';
 import { useTick, useLtps } from '../lib/tickStore.js';
 import { formatPrice, formatPnl, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { ExitsSheet } from '../components/ExitsSheet.jsx';
-import { TradeReplay } from '../components/TradeReplay.jsx';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { TradeReplaySheet } from '../components/TradeReplay.jsx';
 import { DataTable, Stack } from '../components/DataTable.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
 
-const shiftDay = (day, by) => {
-  const [y, m, d] = day.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d + by)).toISOString().slice(0, 10);
-};
+const shareClosedColumns = [
+  { key: 'when', header: 'Closed', render: (p) => formatTime(p.closedAt) },
+  {
+    key: 'stock',
+    header: 'Stock',
+    render: (p) => (
+      <Stack
+        top={
+          <span className="flex items-center gap-1.5 font-semibold">
+            {p.symbol} <Badge tone={p.direction === 'LONG' ? 'up' : 'down'}>{p.direction === 'LONG' ? 'Long' : 'Short'}</Badge>
+          </span>
+        }
+        sub={`Qty ${Math.max(p.buyQty, p.sellQty)}`}
+      />
+    ),
+  },
+  { key: 'px', header: 'Buy → Sell', align: 'right', render: (p) => `${formatPrice(p.buyQty ? p.buyValue / p.buyQty : null)} → ${formatPrice(p.sellQty ? p.sellValue / p.sellQty : null)}` },
+  { key: 'net', header: 'Net', align: 'right', render: (p) => <Stack top={<span className={`font-bold ${pnlClass(p.netPnl)}`}>{formatPnl(p.netPnl)}</span>} sub={`charges ${formatINR(p.charges)}`} /> },
+];
 
 function OpenRow({ p, onExit, onEdit, busy }) {
   const t = useTick(p.symbol);
@@ -65,13 +79,12 @@ export default function Positions() {
   const { version, status } = useMarket();
   const today = status?.market?.istDate;
   const { data: open, loading } = useApi('/positions?status=OPEN', [version]);
-  const [picked, setPicked] = useState(null);
-  const day = picked || today;
-  const { data: closed } = useApi(day ? `/positions?status=CLOSED&day=${day}` : null, [version]);
-  const { data: closedToday } = useApi(today && day !== today ? `/positions?status=CLOSED&day=${today}` : null, [version]);
-  const [replay, setReplay] = useState(null);
+  const { data: closed } = useApi(today ? `/positions?status=CLOSED&day=${today}` : null, [version]);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [replay, setReplay] = useState(null);
+  const { data: past } = useApi('/positions?status=CLOSED&segment=EQ', [version]);
+  const earlier = (past?.positions || []).filter((p) => p.tradingDay !== today).sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt)).slice(0, 50);
   const positions = open?.positions || [];
   const ltpOf = useLtps(positions.map((p) => p.symbol));
 
@@ -81,8 +94,7 @@ export default function Positions() {
   }, 0);
   const openCosts = positions.reduce((a, p) => a + p.realizedPnl - p.charges, 0);
   const closedNet = (closed?.positions || []).reduce((a, p) => a + p.netPnl, 0);
-  const todayNet = day === today ? closedNet : (closedToday?.positions || []).reduce((a, p) => a + p.netPnl, 0);
-  const dayPnl = unrealized + openCosts + todayNet;
+  const dayPnl = unrealized + openCosts + closedNet;
 
   async function run(fn) {
     setBusy(true);
@@ -109,7 +121,7 @@ export default function Positions() {
             Unrealised <span className={pnlClass(unrealized)}>{formatPnl(unrealized)}</span>
           </span>
           <span>
-            Booked <span className={pnlClass(todayNet)}>{formatPnl(todayNet)}</span>
+            Booked <span className={pnlClass(closedNet)}>{formatPnl(closedNet)}</span>
           </span>
         </div>
       </Card>
@@ -146,54 +158,33 @@ export default function Positions() {
         )}
       </Card>
 
-      {day && (
+      {closed?.positions?.length > 0 && (
         <>
-          <div className="flex items-center justify-between gap-2 pt-2">
-            <button type="button" aria-label="Previous day" onClick={() => setPicked(shiftDay(day, -1))} className="btn btn-secondary btn-sm">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <h2 className="text-sm font-semibold">
-              Closed {day === today ? 'today' : day} ({closed?.positions?.length ?? 0})
-            </h2>
-            <button type="button" aria-label="Next day" disabled={day >= today} onClick={() => setPicked(shiftDay(day, 1))} className="btn btn-secondary btn-sm">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-          {closed?.positions?.length > 0 ? (
+          <h2 className="pt-2 text-sm font-semibold">
+            Closed today ({closed.positions.length}) <span className="text-[11px] font-normal text-muted">· tap one to replay it</span>
+          </h2>
           <Card className="overflow-hidden">
-            <p className="px-3 pt-2 text-[11px] text-muted">Tap a trade to replay it minute by minute: how it was entered and why it ended where it did.</p>
             <DataTable
-              onRowClick={(p) => setReplay(p._id ?? p.id)}
-              columns={[
-                { key: 'when', header: 'Closed', render: (p) => formatTime(p.closedAt) },
-                {
-                  key: 'stock',
-                  header: 'Stock',
-                  render: (p) => (
-                    <Stack
-                      top={
-                        <span className="flex items-center gap-1.5 font-semibold">
-                          {p.symbol} <Badge tone={p.direction === 'LONG' ? 'up' : 'down'}>{p.direction === 'LONG' ? 'Long' : 'Short'}</Badge>
-                        </span>
-                      }
-                      sub={`Qty ${Math.max(p.buyQty, p.sellQty)}`}
-                    />
-                  ),
-                },
-                { key: 'px', header: 'Buy → Sell', align: 'right', render: (p) => `${formatPrice(p.buyQty ? p.buyValue / p.buyQty : null)} → ${formatPrice(p.sellQty ? p.sellValue / p.sellQty : null)}` },
-                { key: 'net', header: 'Net', align: 'right', render: (p) => <Stack top={<span className={`font-bold ${pnlClass(p.netPnl)}`}>{formatPnl(p.netPnl)}</span>} sub={`charges ${formatINR(p.charges)}`} /> },
-              ]}
+              onRowClick={setReplay}
+              columns={shareClosedColumns}
               rows={closed.positions}
               footer={{ when: 'Day total', net: formatPnl(closedNet) }}
             />
           </Card>
-          ) : (
-            <Card className="p-4 text-sm text-muted">No trade closed on this day.</Card>
-          )}
         </>
       )}
-      {replay && <TradeReplay id={replay} onClose={() => setReplay(null)} />}
+      {earlier.length > 0 && (
+        <>
+          <h2 className="pt-2 text-sm font-semibold">
+            Earlier share trades <span className="text-[11px] font-normal text-muted">· tap one to replay it minute by minute</span>
+          </h2>
+          <Card className="overflow-hidden">
+            <DataTable onRowClick={setReplay} columns={[{ key: 'day', header: 'Day', render: (p) => <Stack top={p.tradingDay.slice(5)} sub={formatTime(p.closedAt).slice(0, 5)} /> }, ...shareClosedColumns.slice(1)]} rows={earlier} />
+          </Card>
+        </>
+      )}
       {editing && <ExitsSheet position={editing} onClose={() => setEditing(null)} />}
+      {replay && <TradeReplaySheet positionId={replay._id} title={replay.symbol} onClose={() => setReplay(null)} />}
     </div>
   );
 }

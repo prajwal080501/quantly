@@ -1,33 +1,61 @@
-// Helpers for the trade replay popup (components/TradeReplay.jsx).
+// Helpers for the trade view (minute by minute). The server does the replay; these only shape it for the screen.
 
-/** "11:06" in IST from a Date, an ISO string or epoch milliseconds. */
-export function replayTime(at) {
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return '';
-  const m = Math.floor((d.getTime() / 60000 + 330) % 1440);
-  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+/** "10:42" in IST from epoch seconds. */
+export const clockOf = (sec) => (sec == null ? '—' : new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(sec * 1000)));
+
+/** +₹1,240 / -₹3,999: whole rupees, for the minute list where paise are noise. */
+export function rupees(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '—';
+  const s = `₹${Math.round(Math.abs(v)).toLocaleString('en-IN')}`;
+  return v > 0 ? `+${s}` : v < 0 ? `-${s}` : s;
 }
 
 /**
- * SVG paths for the minute rows: the close line, the best-so-far line, the ladder's stop line and the high/low band, plus the y of zero
- * and of the hard stop. Null without rows.
+ * The minute list with the moments put next to the minute they happened in. `keyOnly` keeps the minutes that matter: the first five,
+ * every minute with a moment, each minute where P&L crossed zero, the best and worst, and the last one.
  */
-export function replayPath(rows, { width = 640, height = 180, pad = 6, hardStopPnl = null } = {}) {
-  if (!rows?.length) return null;
-  const vals = rows.flatMap((r) => [r.pnlHigh, r.pnlLow, r.best, r.lock ?? 0]).concat([0, hardStopPnl ?? 0]);
-  let lo = Math.min(...vals);
-  let hi = Math.max(...vals);
-  if (hi - lo < 1) {
-    hi += 1;
-    lo -= 1;
+export function minuteList(minutes = [], events = [], { keyOnly = false } = {}) {
+  const at = new Map();
+  for (const e of events) {
+    const t = e.time - (e.time % 60);
+    if (!at.has(t)) at.set(t, []);
+    at.get(t).push(e);
   }
-  const n = rows.length;
-  const x = (i) => pad + (n === 1 ? (width - 2 * pad) / 2 : (i * (width - 2 * pad)) / (n - 1));
-  const y = (v) => pad + ((hi - v) * (height - 2 * pad)) / (hi - lo);
-  const line = (get) => rows.map((r, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(get(r)).toFixed(1)}`).join(' ');
-  const withLock = rows.map((r, i) => [i, r.lock]).filter(([, v]) => v != null);
-  const lock = withLock.length ? withLock.map(([i, v], k) => `${k ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ') : null;
-  const top = rows.map((r, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(r.pnlHigh).toFixed(1)}`).join(' ');
-  const bottom = [...rows].map((r, i) => [i, r]).reverse().map(([i, r]) => `L${x(i).toFixed(1)},${y(r.pnlLow).toFixed(1)}`).join(' ');
-  return { close: line((r) => r.pnl), best: line((r) => r.best), lock, band: `${top} ${bottom} Z`, zero: y(0), hard: hardStopPnl == null ? null : y(hardStopPnl) };
+  let best = null;
+  let worst = null;
+  for (const m of minutes) {
+    if (!best || m.pnl > best.pnl) best = m;
+    if (!worst || m.pnl < worst.pnl) worst = m;
+  }
+  return minutes
+    .map((m, i) => {
+      const prev = minutes[i - 1];
+      const crossed = prev && Math.sign(prev.pnl) !== Math.sign(m.pnl) && m.pnl !== 0;
+      const moved = prev && m.stop !== prev.stop;
+      return { ...m, change: prev ? Math.round(m.pnl - prev.pnl) : null, events: at.get(m.time) ?? [], crossed, stopMoved: Boolean(moved), isBest: m === best, isWorst: m === worst };
+    })
+    .filter((m, i, all) => !keyOnly || i < 5 || i === all.length - 1 || m.events.length || m.crossed || m.isBest || m.isWorst || m.stopMoved);
+}
+
+/** P&L checkpoints for a one-line story: after 1, 5, 10, 15, 30, 60 minutes and at the exit. */
+export function checkpoints(minutes = []) {
+  const out = [];
+  for (const n of [1, 5, 10, 15, 30, 60]) {
+    const m = minutes.find((x) => x.min === n);
+    if (m && m !== minutes.at(-1)) out.push({ label: `${n} min`, pnl: m.pnl });
+  }
+  if (minutes.length) out.push({ label: 'exit', pnl: minutes.at(-1).pnl });
+  return out;
+}
+
+/** Scales for the chart: x by candle index, y by price, a second y for the P&L bars. */
+export function chartScales(candles, { extra = [], height = 200, top = 12, bottom = 18 } = {}) {
+  const prices = [...candles.flatMap((c) => [c.high, c.low]), ...extra.filter((v) => typeof v === 'number' && Number.isFinite(v))];
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  const pad = (hi - lo) * 0.06 || 1;
+  const min = lo - pad;
+  const max = hi + pad;
+  const y = (v) => top + ((max - v) / (max - min)) * (height - top - bottom);
+  return { min, max, y };
 }

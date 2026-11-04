@@ -1,15 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { FlaskConical } from 'lucide-react';
+import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl as rawPnl, formatPrice, pnlClass } from '../lib/format.js';
-import { SaveComboButtons } from '../components/SaveComboButtons.jsx';
-import { TrustBadge } from '../components/TrustBadge.jsx';
-import { InfoButton } from '../components/InfoButton.jsx';
+import { canAdd, withFound } from '../lib/autoFind.js';
 import { LAB_DAYS, LAB_PRICES, addonLine, dayWord, entryStory, exitStory, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
 import { VERDICT } from '../lib/combos.js';
 import { whyText } from '../lib/patternReview.js';
 import { LabChart } from '../components/LabChart.jsx';
 import { TradeChart } from '../components/TradeChart.jsx';
+import { AddOnActions } from '../components/AddOnActions.jsx';
+import { InfoButton } from '../components/CheckInfo.jsx';
+import { TrustBadge } from '../components/TrustBadge.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -269,7 +272,7 @@ function Addons({ rows, add, onToggle }) {
         {shown.map((a) => {
           const on = add.includes(a.key);
           return (
-            <li key={a.key} className={`flex items-start ${on ? 'bg-surface-2' : ''}`}>
+            <li key={a.key} className={`flex items-start gap-1 ${on ? 'bg-surface-2' : ''}`}>
               <button type="button" aria-pressed={on} onClick={() => onToggle(a.key)} className="flex min-w-0 flex-1 items-start justify-between gap-3 py-2 text-left text-xs">
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-center gap-1.5 font-medium">+ {a.label} <Badge tone="muted">{a.group}</Badge> {VERDICT[a.verdict] && <Badge tone={VERDICT[a.verdict].tone}>{VERDICT[a.verdict].text}</Badge>}</span>
@@ -278,7 +281,7 @@ function Addons({ rows, add, onToggle }) {
                 </span>
                 <span className={`num shrink-0 text-right font-semibold ${pnlClass(a.gain)}`}>{formatPnl(a.gain)}<span className="block text-[10px] font-normal text-muted">{formatPnl(a.net)} in all</span></span>
               </button>
-              <InfoButton cond={a.key} className="ml-1 mt-2" />
+              <InfoButton keys={a.key} title={a.label} className="mt-1.5" />
             </li>
           );
         })}
@@ -295,7 +298,7 @@ export default function Lab({ embedded = false }) {
   const [days, setDays] = useState('15');
   const [prices, setPrices] = useState('mixed');
   const [selected, setSelected] = useState(null);
-  const busy = false;
+  const [busy, setBusy] = useState(false);
   const choices = useApi('/lab', []);
   const own = useApi('/options', []);
   const run = useApi(base ? labPath({ base, add, days, prices }) : null, [base, add.join(','), days, prices]);
@@ -318,7 +321,22 @@ export default function Lab({ embedded = false }) {
   const chosen = r?.entries.find((e) => e.id === selected) ?? null;
   const comboBase = base.startsWith('combo:');
 
+  const pickedLabels = r ? r.addons.filter((a) => add.includes(a.key)).map((a) => a.label) : [];
+  const afterSave = () => { own.reload?.(); choices.reload?.(); setAdd([]); setSelected(null); };
 
+  /** A pattern with add-ons, saved as a new combination: the pattern as a check, and the add-ons, all must hold. */
+  async function saveFromPattern() {
+    setBusy(true);
+    try {
+      await api('/options', { method: 'PUT', body: { combos: withFound(saved, { conds: [`p_${base.slice(8)}`, ...add], labels: [r.base.name, ...pickedLabels] }) } });
+      afterSave();
+      toast.success('Saved, switched off. Turn it on under Account > Entries.');
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const list = choices.data?.choices;
   return (
@@ -351,13 +369,16 @@ export default function Lab({ embedded = false }) {
       {r && (
         <>
           <Card className="space-y-3 p-3">
-            <p className="text-[11px] leading-snug text-muted"><b className="text-fg">{r.base.name}</b>: {r.base.text}. {r.period.from} to {r.period.to} ({r.period.days} trading days). {r.pricing.real} entr{r.pricing.real === 1 ? 'y' : 'ies'} priced from real saved premiums, {r.pricing.estimated} estimated.</p>
+            <div className="flex items-start gap-1">
+              <p className="min-w-0 flex-1 text-[11px] leading-snug text-muted"><b className="text-fg">{r.base.name}</b>: {r.base.text}. {r.period.from} to {r.period.to} ({r.period.days} trading days). {r.pricing.real} entr{r.pricing.real === 1 ? 'y' : 'ies'} priced from real saved premiums, {r.pricing.estimated} estimated.</p>
+              <InfoButton keys={comboBase ? r.base.conds : [`p_${base.slice(8)}`]} title={r.base.name} rule={comboBase ? r.base.text : null} />
+            </div>
             <Summary s={r.stats} title={r.withAdd ? 'Now' : 'Result'} tone="" />
             {r.withAdd && <Summary s={r.withAdd} title={`With ${r.withAdd.labels.join(' + ')}`} tone="text-accent" />}
             <Equity base={r.stats} withAdd={r.withAdd} />
             <TrustBadge trades={r.stats.trades} winRate={r.stats.winRate} net={r.stats.net} long />
-            {r.stats.trades < 15 && <p className="text-[11px] text-warn">Only {r.stats.trades} entries: too few to trust. Use a longer period.</p>}
             <p className="text-[11px] text-muted">The Lab now replays your live rules (one call and one put at a time, pauses after a loss, your trades a day, and the anti-chase, already-moved and with-the-day checks), so its history is what live would really have done.</p>
+            {r.stats.trades < 15 && <p className="text-[11px] text-warn">Only {r.stats.trades} entries: too few to trust. Use a longer period.</p>}
           </Card>
 
           <Card className="space-y-2 p-3">
@@ -377,12 +398,14 @@ export default function Lab({ embedded = false }) {
             <h3 className="text-sm font-semibold text-accent2">Add an indicator</h3>
             <p className="text-[11px] leading-snug text-muted">Every other indicator, added to {r.base.name} (all must hold), over the same days. Best first by what it changes in the net. Tap up to three to see the entries it skips in the table and the chart.</p>
             {r.addons.length === 0 ? <p className="text-xs text-muted">No single indicator changes these entries.</p> : <Addons rows={r.addons} add={add} onToggle={(k) => { setAdd((a) => togglePick(a, k)); setSelected(null); }} />}
-            {add.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {comboBase && <SaveComboButtons saved={saved} found={{ conds: [...r.base.conds, ...add], labels: [r.base.name, ...r.addons.filter((a) => add.includes(a.key)).map((x) => x.label)] }} baseId={base.slice(6)} baseName={r.base.name} onSaved={() => own.reload?.()} disabled={busy} />}
+            {add.length > 0 && comboBase && <AddOnActions saved={saved} comboId={base.slice(6)} add={add} labels={pickedLabels} onSaved={afterSave} onClear={() => setAdd([])} />}
+            {add.length > 0 && !comboBase && (
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className="btn btn-sm" disabled={busy || !saved || !canAdd(saved)} onClick={saveFromPattern}>{canAdd(saved) ? 'Save as new combination' : 'My combinations is full (30)'}</button>
                 <button type="button" className="btn btn-sm" onClick={() => setAdd([])}>Clear picks</button>
               </div>
             )}
+            {add.length > 0 && <p className="text-[11px] leading-snug text-muted">{comboBase ? 'Update changes this combination in place (it asks first). Save as new keeps it and adds a copy with the picks, switched off.' : 'A pattern is not a saved combination, so it can only be saved as a new one (the pattern plus your picks, switched off).'} Tap the i beside any indicator to read how it works.</p>}
             <p className="text-[11px] text-muted">With about 100 indicators tried, a few will look good by luck. Prefer one that removes losers on both the older and the newer half, and paper-test it.</p>
           </Card>
 
