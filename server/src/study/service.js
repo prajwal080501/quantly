@@ -9,8 +9,9 @@ import { NIFTY50 } from '../market/instruments.js';
 import { INDEXES, DEFAULT_INDEX, lotSizeOf } from '../options/symbols.js';
 import { conflict } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import { runOptionsStudy, runLadderStudy } from './optionsStudy.js';
+import { runOptionsStudy, runLadderStudy, runMovedStudy } from './optionsStudy.js';
 import { chaseOf } from '../options/chase.js';
+import { movedOf } from '../options/moved.js';
 import { entryModes } from '../options/optionTrader.js';
 import { runSharesStudy } from './sharesStudy.js';
 import { PriceBook, firstStudyDay } from './priceBook.js';
@@ -40,7 +41,7 @@ export class StudyService {
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
     const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts };
-    const run = kind === 'ladder' ? this.#runLadder(userId, job, { index, days: days ?? 30 }) : kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
+    const run = kind === 'ladder' ? this.#runLadder(userId, job, { index, days: days ?? 30 }) : kind === 'moved' ? this.#runMoved(userId, job, { index, days: days ?? 30 }) : kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -124,6 +125,7 @@ export class StudyService {
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
+      moved: movedOf(settings),
       autoFind,
       pairFind,
       pairFirst,
@@ -151,6 +153,27 @@ export class StudyService {
 
   /** The ladder tester: the live entries on the saved real option prices, sold with many profit ladders and with the anti-chase check. */
   async #runLadder(userId, job, { index = DEFAULT_INDEX, days = 30 }) {
+    const { nifty1, stocks5, params, prices } = await this.#liveReplay(userId, job, { index, days });
+    const result = await runLadderStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
+    result.pricing = prices.describe();
+    const own = index === 'SENSEX' && (await TradeDefaults.findOne({ user: userId }, 'sensex.own').lean())?.sensex?.own;
+    result.applyKey = own ? 'sensex' : 'options'; // where "Use this ladder" saves it
+    result.lockOn = params.lockOn;
+    await this.#save(userId, 'ladder', result);
+  }
+
+  /** The "already moved" tester: the live entries on the saved real option prices, with each limit on how far the index (or the premium) had already run. */
+  async #runMoved(userId, job, { index = DEFAULT_INDEX, days = 30 }) {
+    const { nifty1, stocks5, params, prices, settings } = await this.#liveReplay(userId, job, { index, days });
+    params.entryKey = index === 'SENSEX' && settings.sensexOwn === true ? 'sensexEntryTo' : 'entryTo'; // where "No new trade from" is saved
+    const result = await runMovedStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
+    result.pricing = prices.describe();
+    result.now = { moved: movedOf(settings), chase: chaseOf(settings), entryTo: params.entryTo };
+    await this.#save(userId, 'moved', result);
+  }
+
+  /** What both testers replay: the Nifty (or Sensex) minutes, the 50 stocks, and the live trader's own settings as study params. */
+  async #liveReplay(userId, job, { index = DEFAULT_INDEX, days = 30 }) {
     job.step = 'Reading the saved real option prices';
     const prices = await PriceBook.load(index);
     if (!prices.days.length) throw new Error('No real option prices are saved yet. They are saved each evening after 15:40 while the server runs and Upstox is logged in, or press Download in Research > Saved data.');
@@ -198,18 +221,15 @@ export class StudyService {
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
+      moved: movedOf(settings),
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
       sideOnly: settings?.sideOnly ?? null,
       target: 0,
       exitMin: rules.exitMin,
     };
-    const result = await runLadderStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
-    result.pricing = prices.describe();
-    const own = index === 'SENSEX' && (await TradeDefaults.findOne({ user: userId }, 'sensex.own').lean())?.sensex?.own;
-    result.applyKey = own ? 'sensex' : 'options'; // where "Use this ladder" saves it
-    result.lockOn = rules.lockOn !== false;
-    await this.#save(userId, 'ladder', result);
+    params.lockOn = rules.lockOn !== false;
+    return { nifty1, stocks5, params, prices, settings };
   }
 
   async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal, pairParts }) {

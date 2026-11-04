@@ -857,6 +857,29 @@ test('a skipped entry is logged once with the reason, not on every scan', async 
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 });
 
+test('the pause-today switch and the already-moved check skip automatic buys with a one-line reason', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  const paused = (await api().put('/api/options').set(fresh.auth).send({ enabled: true, pauseToday: true }).expect(200)).body;
+  assert.equal(paused.settings.pausedToday, true);
+  const r = await consider(await OptionSettings.findOne({ user: uid }).lean(), callRead(25000));
+  assert.match(r.skipped, /paused for today/);
+  const back = (await api().put('/api/options').set(fresh.auth).send({ pauseToday: false, movedCheck: 'run30', movedLimit: 0.1 }).expect(200)).body;
+  assert.equal(back.settings.pausedToday, false);
+  assert.match(back.settings.movedText, /30-minute low/);
+  await api().put('/api/options').set(fresh.auth).send({ movedCheck: 'nope' }).expect(400);
+  // the index climbed 100 points in the last hour: a call now is chasing
+  const minute = Math.floor(Date.now() / 60000) * 60;
+  const c1 = Array.from({ length: 60 }, (_, i) => ({ time: minute - (60 - i) * 60, open: 24900 + i * 1.6, high: 24901 + i * 1.6, low: 24899 + i * 1.6, close: 24901 + i * 1.6, volume: 0 }));
+  const read = callRead(25000);
+  Object.defineProperty(read, 'c1', { value: c1 });
+  const skipped = await consider(await OptionSettings.findOne({ user: uid }).lean(), read);
+  assert.match(skipped.skipped ?? '', /Nifty is already up .* from its 30-minute low, over the 0.1% you allow/);
+  const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'SKIPPED', reason: /30-minute low/ }).lean();
+  assert.ok(log, 'the reason is in the options log');
+});
+
 test('the options API: settings, the chart read, the log, and a manual buy', async () => {
   const fresh = await registerUser(app);
   const off = (await api().get('/api/options').set(fresh.auth).expect(200)).body;

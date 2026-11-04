@@ -11,6 +11,8 @@ import { runResearch } from './research.js';
 import { comboStopRule } from '../combos/combos.js';
 import { findPairs, findCombos, pairStart } from './pairFinder.js';
 import { runLadderTest, MIN_SPLIT_DAYS } from './ladderTest.js';
+import { runMovedTest } from './movedTest.js';
+import { movedMeasures, movedSkip, istMinutes } from '../options/moved.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -269,6 +271,20 @@ export function liveSkip(s, trades, { maxPerDay, dailyLoss = 0 }) {
  * With `params.live` the live trader's own rules are replayed (see liveSkip), and the skips are counted by reason in `skips`.
  * A stop at least 0.8 ATR away and no more than MAX_STOP_ATR either way.
  */
+const measureCache = new WeakMap(); // c1 -> Map(`${time}|${side}|${atr}` -> measures): the replays try many limits on the same entries
+
+/** The "already moved" measures (options/moved.js) at a replayed entry: the bars before the entry minute and its open, as live sees them. */
+export function measuresAt(c1, byTime, s, at, entry) {
+  if (!measureCache.has(c1)) measureCache.set(c1, new Map());
+  const cache = measureCache.get(c1);
+  const key = `${at}|${s.side}|${s.atr}`;
+  if (!cache.has(key)) {
+    const i = byTime.get(at) ?? c1.length;
+    cache.set(key, { ...movedMeasures(c1.slice(Math.max(0, i - 420), i), { price: entry, now: at, side: s.side, atr: s.atr }), minutes: istMinutes(at) });
+  }
+  return cache.get(key);
+}
+
 export function tradesFor(signals, { c1, byTime, params }) {
   const trades = [];
   const skips = {};
@@ -295,7 +311,20 @@ export function tradesFor(signals, { c1, byTime, params }) {
       skippedWide += 1;
       continue;
     }
+    let measures = null;
+    if (params.moved || params.withMeasures || params.lastEntry) {
+      measures = measuresAt(c1, byTime, s, at, entry);
+      if (params.lastEntry && measures.minutes >= params.lastEntry) {
+        skips.late = (skips.late || 0) + 1; // the time-of-day rows of the "already moved" tester: no new trade from this time on
+        continue;
+      }
+      if (params.moved && movedSkip(measures, params.moved, { side: s.side })) {
+        skips.moved = (skips.moved || 0) + 1; // the index had already run too far in the trade's direction
+        continue;
+      }
+    }
     const trade = simulateTrade({ c1, byTime, signal: { ...s, time: at, stop }, params });
+    if (trade && !trade.skipped && measures) trade.moved = measures;
     if (trade?.skipped === 'chase') {
       skips.chase = (skips.chase || 0) + 1; // the premium had already run up too far (the anti-chase check)
       continue;
@@ -433,6 +462,36 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
  * @param params  the study params plus { patterns (the live pattern keys, empty when pattern entries are off), comboEntries, patternMinScore, comboMinScore }
  */
 export async function runLadderStudy({ nifty1, stocks5 = null, params, onProgress = () => {} }) {
+  const live = await liveEntries({ nifty1, stocks5, params, onProgress });
+  const { complete, byTime, kept, trainEnd, splitOk } = live;
+  const test = await runLadderTest({ signals: kept, tradesFor: (sigs, p) => tradesFor(sigs, { c1: complete, byTime, params: p }), trainEnd, splitOk, params, onProgress, yieldTurn });
+  return { ...replayHeader(live, params), ...test };
+}
+
+/**
+ * The "already moved" tester: the same live entries on the saved real option prices, replayed with each limit on how far the index had
+ * already run in the trade's direction (and the premium check and late cut-offs), picked on the older days and checked on the newest.
+ */
+export async function runMovedStudy({ nifty1, stocks5 = null, params, onProgress = () => {} }) {
+  const live = await liveEntries({ nifty1, stocks5, params, onProgress });
+  const { complete, byTime, kept, trainEnd, splitOk } = live;
+  const test = await runMovedTest({ signals: kept, tradesFor: (sigs, p) => tradesFor(sigs, { c1: complete, byTime, params: p }), trainEnd, splitOk, params, onProgress, yieldTurn });
+  return { ...replayHeader(live, params), ...test };
+}
+
+function replayHeader({ fromTime, complete, studyDays, splitOk, cut, trainEnd, sources, skipped, ownLadder }, params) {
+  return {
+    generatedAt: new Date().toISOString(),
+    period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length, fitDays: splitOk ? cut : studyDays.length, checkDays: splitOk ? studyDays.length - cut : 0, checkFrom: splitOk ? dayKey(trainEnd) : null },
+    params: { index: params.index ?? 'NIFTY', lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lotSize: params.lotSize, maxPerDay: params.maxTrades ?? MAX_PER_DAY, trail: params.trail ?? null, breakEven: params.breakEven ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15 },
+    sources,
+    combosSkipped: skipped,
+    ownLadder,
+  };
+}
+
+/** The entries the live trader would have taken on the study days (its patterns and combinations, with the score floors), and the older/newer split. */
+async function liveEntries({ nifty1, stocks5 = null, params, onProgress = () => {} }) {
   const dayOf = (key) => Date.parse(`${key}T00:00:00Z`) / 86400000;
   const complete = params.to ? nifty1.filter((b) => DAY(b.time) <= dayOf(params.to)) : nifty1;
   const days = [...new Set(complete.map((b) => DAY(b.time)))].sort((a, b) => a - b);
@@ -484,16 +543,7 @@ export async function runLadderStudy({ nifty1, stocks5 = null, params, onProgres
   const cut = Math.floor((studyDays.length * 2) / 3);
   const splitOk = studyDays.length >= MIN_SPLIT_DAYS;
   const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.min(cut, studyDays.length - 1)])?.time ?? Infinity;
-  const test = await runLadderTest({ signals: kept, tradesFor: (sigs, p) => tradesFor(sigs, { c1: complete, byTime, params: p }), trainEnd, splitOk, params, onProgress, yieldTurn });
-  return {
-    generatedAt: new Date().toISOString(),
-    period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length, fitDays: splitOk ? cut : studyDays.length, checkDays: splitOk ? studyDays.length - cut : 0, checkFrom: splitOk ? dayKey(trainEnd) : null },
-    params: { index: params.index ?? 'NIFTY', lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lotSize: params.lotSize, maxPerDay: params.maxTrades ?? MAX_PER_DAY, trail: params.trail ?? null, breakEven: params.breakEven ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15 },
-    sources,
-    combosSkipped: skipped,
-    ownLadder,
-    ...test,
-  };
+  return { complete, byTime, kept, sources, skipped, ownLadder, studyDays, fromTime, splitOk, cut, trainEnd };
 }
 
 // ---------- auto-find: combinations that hold on days they were not chosen on ----------

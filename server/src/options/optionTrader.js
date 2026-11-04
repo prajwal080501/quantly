@@ -11,6 +11,7 @@ import { comboSignals, normalizeCombos, comboFitsIndex } from '../combos/combos.
 import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
 import { chaseOf, chaseRise, chaseSkip } from './chase.js';
+import { movedOf, movedMeasures, movedSkip } from './moved.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
@@ -141,6 +142,7 @@ export class OptionTrader {
       { now: this.now(), enforceWindows: this.config.enforceMarketHours },
     );
     if (read.ready) {
+      Object.defineProperty(read, 'c1', { value: c1, enumerable: false }); // the 1-minute bars, for the "already moved" check (kept out of logs and JSON)
       read.index = index;
       read.ce.index = index;
       read.pe.index = index;
@@ -303,7 +305,7 @@ export class OptionTrader {
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
       let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings, read.index));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.exits ? { exits: hit.exits } : {}) };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}) };
       if (minScore && !(sideScore >= minScore)) {
         result = await this.#skip(settings, side, `${label} ${hit.side}: the chart score ${sideScore == null ? 'is not known' : `is ${Math.round(sideScore)}`}, under the ${minScore} you asked for`);
         continue;
@@ -326,6 +328,7 @@ export class OptionTrader {
     const stop = (reason) => (manual ? { skipped: reason } : this.#skip(settings, side, reason));
     if (today.open >= settings.maxOpen) return stop(`already ${today.open} option trade${today.open > 1 ? 's' : ''} open`);
     if (!manual) {
+      if (settings.pausedOn && settings.pausedOn === this.engine.marketStatus().istDate) return stop('new automatic buys are paused for today (your switch in Options)');
       if (today.trades >= settings.maxTrades) return stop(`already took ${today.trades} option trades today`);
       if (today.pnl <= -(settings.budget * settings.dailyLossPct) / 100) return stop('daily loss limit reached');
       const wait = await this.#coolingDown(userId, side.type);
@@ -336,6 +339,14 @@ export class OptionTrader {
     const held = new RegExp(settings.mirror ? `^${index}-.*-${side.type}$` : `-${side.type}$`);
     if (await Position.findOne({ user: userId, segment: 'OPT', status: 'OPEN', symbol: held })) return stop(`already holding a ${side.type}`);
 
+    const moved = manual ? null : movedOf(settings);
+    if (moved && read.c1) {
+      // the "already moved" check: how far the index has run in this trade's direction before now
+      const now = Math.floor(this.now().getTime() / 1000);
+      const measures = movedMeasures(read.c1, { price: read.spot, now: now - (now % 60), side: side.type, atr: side.atr ?? read.atr5 });
+      const why = movedSkip(measures, moved, { side: side.type, index: INDEXES[index].short });
+      if (why) return stop(why);
+    }
     const contract = await this.market.pickOption({ type: side.type, now: this.now(), index });
     if (!contract?.ltp) return stop('no option contract with a live price');
     const chase = manual ? null : chaseOf(settings);
