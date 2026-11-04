@@ -11,6 +11,8 @@ export const comboSchema = new mongoose.Schema(
     window: { type: Number, default: 3, min: 1, max: 6 },
     on: { type: Boolean, default: true },
     index: { type: String, enum: ['NIFTY', 'SENSEX'], default: undefined }, // the one index it trades; unset = both
+    side: { type: String, enum: ['CE', 'PE'], default: undefined }, // calls only or puts only; unset = both. Missing here before 4 Nov 2026, so the lock was dropped on save
+    benchedOn: { type: String, default: undefined }, // 'YYYY-MM-DD': switched off by itself after losses in a row (OptionSettings.benchAfter)
     stopMode: { type: String, enum: ['chart', 'cap', 'atr', 'fixed'], default: undefined }, // its own stop; unset = the shared stop of Account > Entries
     stopAtr: { type: Number, min: 0.8, max: 2.5, default: undefined },
     stopPoints: { type: Number, min: 10, max: 150, default: undefined },

@@ -9,10 +9,11 @@ import { sharesText, studyText } from '../../lib/study.js';
 import { skipsText, winnerOf } from '../../lib/pairs.js';
 import { useApi } from '../../lib/useApi.js';
 import { useStudy } from '../../lib/useStudy.js';
-import { Card, Segmented, Skeleton } from '../ui.jsx';
+import { Card, Fold, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 import { RealPricesSwitch } from './RealPricesSwitch.jsx';
 import { AutoFound } from './AutoFound.jsx';
+import { TrustBadge } from '../TrustBadge.jsx';
 import { PairFinder, StartFromSelect } from './PairFinder.jsx';
 
 const OPTION_DAYS = [
@@ -49,6 +50,7 @@ function Winner({ pf }) {
       <p className="num text-[11px] text-muted">
         {f.trades} trades · <b className="text-fg">{f.winRate ?? '–'}% win</b> (alone {a.winRate ?? '–'}%) · <b className={pnlClass(f.net)}>{formatPnl(f.net)}</b> (alone {formatPnl(a.net)}) · newer days {formatPnl(f.test.net)}
       </p>
+      <TrustBadge trades={f.trades} winRate={f.winRate} net={f.net} />
       {skipsText(f) && <p className="num text-[11px] text-muted">It {skipsText(f)}.</p>}
       {(stop || exit) && (
         <p className="num text-[11px] text-muted">
@@ -117,7 +119,7 @@ export function FinderStudy() {
           <Search className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Combination finder</h3>
-            <p className="text-[11px] leading-snug text-muted">Find the extra checks that make a combination win more and skip its bad entries.</p>
+            <p className="text-[11px] leading-snug text-muted">Pick what to start from and tap Run. The good defaults are already set; the rest is under More settings.</p>
             <details className="mt-1 text-[11px] leading-snug text-muted">
               <summary className="cursor-pointer font-semibold text-accent">How it works</summary>
               <p className="mt-1">
@@ -130,6 +132,13 @@ export function FinderStudy() {
         {options && <Segmented className="w-full" size="sm" value={index} onChange={(k) => { setIndex(k); saveIndex(k); }} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />}
         <Segmented className="w-full" size="sm" value={what} onChange={setWhat} options={WHAT} />
         {what !== 'new' && <StartFromSelect kind={kind} value={first} onChange={setFirst} />}
+        <div className="space-y-1">
+          <div className="text-[11px] text-muted">Days to read</div>
+          {!dates && <Segmented className="w-full" size="sm" value={options ? days : Math.min(days, 15)} onChange={setDays} options={options ? OPTION_DAYS : SHARE_DAYS} />}
+          {dates && <p className="text-[11px] text-muted">Between {from || '…'} and {to || '…'} (change under More settings).</p>}
+        </div>
+        <Fold plain id="finder-more" title="More settings" summary={`${depth === 3 ? 'up to 3' : depth === 2 ? 'up to 2' : '1'} extra · ${show} results · ${goal === 'profit' ? 'most profit' : 'win rate'}${options ? ` · stop research ${research ? 'on' : 'off'}` : ''}`}>
+          <div className="space-y-3 pt-1">
         {what !== 'new' && (
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] leading-snug text-muted">
@@ -159,25 +168,27 @@ export function FinderStudy() {
           </div>
         )}
         {options && <RealPricesSwitch on={realPrices} setOn={setRealPrices} />}
-        <div className="space-y-1">
-          <div className="text-[11px] text-muted">Days to read</div>
-          {options && <Segmented className="w-full" size="sm" value={range} onChange={setRange} options={[{ value: 'days', label: 'Last days' }, { value: 'dates', label: 'Between dates' }]} />}
-          {dates ? (
-            <div className="grid grid-cols-2 gap-2 text-xs text-muted">
-              <label className="space-y-0.5">
-                <span>From</span>
-                <input type="date" className="field !px-2 !py-1.5 !text-sm" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="First day" />
-              </label>
-              <label className="space-y-0.5">
-                <span>To</span>
-                <input type="date" className="field !px-2 !py-1.5 !text-sm" value={to} min={from || undefined} max={today()} onChange={(e) => setTo(e.target.value)} aria-label="Last day" />
-              </label>
-            </div>
-          ) : (
-            <Segmented className="w-full" size="sm" value={options ? days : Math.min(days, 15)} onChange={setDays} options={options ? OPTION_DAYS : SHARE_DAYS} />
-          )}
-          <p className="text-[11px] leading-snug text-muted">Needs 10 trading days or more, at most 65 for options. Longer than 30 days reads the saved candles (Research, Data), so download them first.{!options && ' Shares can read the last 15 days, and have no stop research.'}</p>
-        </div>
+        {options && (
+          <div className="space-y-1">
+            <div className="text-[11px] text-muted">Or pick exact dates</div>
+            <Segmented className="w-full" size="sm" value={range} onChange={setRange} options={[{ value: 'days', label: 'Last days' }, { value: 'dates', label: 'Between dates' }]} />
+            {dates && (
+              <div className="grid grid-cols-2 gap-2 text-xs text-muted">
+                <label className="space-y-0.5">
+                  <span>From</span>
+                  <input type="date" className="field !px-2 !py-1.5 !text-sm" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="First day" />
+                </label>
+                <label className="space-y-0.5">
+                  <span>To</span>
+                  <input type="date" className="field !px-2 !py-1.5 !text-sm" value={to} min={from || undefined} max={today()} onChange={(e) => setTo(e.target.value)} aria-label="Last day" />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="text-[11px] leading-snug text-muted">Needs 10 trading days or more, at most 65 for options. Longer than 30 days reads the saved candles (Research, Saved data), so download them first.{!options && ' Shares can read the last 15 days, and have no stop research.'}</p>
+          </div>
+        </Fold>
         <div className="flex justify-end">
           <button type="button" onClick={start} disabled={running || datesBad} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run finder'}

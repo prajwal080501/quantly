@@ -10,6 +10,9 @@ import { badRequest } from '../utils/errors.js';
 import { SENSEX_KEYS } from '../options/indexSettings.js';
 import { comboInput, normalizeCombos } from '../combos/combos.js';
 import { MOVED_KEYS, movedOf, movedWords } from '../options/moved.js';
+import { forIndex } from '../options/indexSettings.js';
+import { marketMood, todayVerdict, istMinutesNow } from '../options/todayCheck.js';
+import { istParts } from '../market/marketHours.js';
 
 export const OPTIONS_DISCLAIMER = 'Options are paper (virtual) trades only. About 9 in 10 individual traders lose money in index options, so treat results here as a test, not a promise. Not investment advice.';
 
@@ -21,6 +24,8 @@ const patch = z
     maxTrades: z.coerce.number().int().min(1).max(10),
     budget: z.coerce.number().min(5000).max(100_000_000),
     dailyLossPct: z.coerce.number().min(2).max(30),
+    lossStreak: z.coerce.number().int().min(0).max(5),
+    benchAfter: z.coerce.number().int().min(0).max(10),
     patternEntries: z.boolean(),
     patternMinScore: z.coerce.number().min(0).max(95),
     comboMinScore: z.coerce.number().min(0).max(95),
@@ -75,7 +80,7 @@ export function optionRoutes({ optionTrader }) {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
     const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, chasePct: s.chasePct ?? 0, chaseMinutes: s.chaseMinutes ?? 15, movedCheck: s.movedCheck ?? 'off', movedLimit: s.movedLimit ?? 0, movedText: movedOf(s) ? movedWords(movedOf(s)) : null, withDay: s.withDay === true, comboStreak: s.comboStreak ?? 0, probation: s.probation !== false, pausedToday: Boolean(s.pausedOn) && s.pausedOn === optionTrader.engine.marketStatus().istDate, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100, ...Object.fromEntries(SENSEX_KEYS.map((k) => [k, s[k] ?? null])) };
-    return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), sensexRules: await loadRules(userId, 'OPT', { index: 'SENSEX' }), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
+    return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, lossStreak: s.lossStreak ?? 2, benchAfter: s.benchAfter ?? 3, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), sensexRules: await loadRules(userId, 'OPT', { index: 'SENSEX' }), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
   router.get('/', async (req, res) => {
@@ -116,6 +121,38 @@ export function optionRoutes({ optionTrader }) {
   });
 
   // Buy one now by hand, with the stop and profit lock from the Account tab.
+  // "Is it a good time to trade?": the index today (trend or chop) and your own state (losses, losses in a row, trades left), as one verdict.
+  router.get('/today-check', async (req, res) => {
+    const parsed = indexQuery.safeParse(req.query.index ?? undefined);
+    if (!parsed.success) return res.status(400).json({ error: { message: 'index must be NIFTY or SENSEX' } });
+    const index = parsed.data;
+    const symbol = INDEXES[index].symbol;
+    const now = optionTrader.now();
+    const day = optionTrader.engine.marketStatus().istDate;
+    const [c1, daily, raw, today, lossesInARow] = await Promise.all([
+      optionTrader.market.getCandles(symbol, '1m').catch(() => []),
+      optionTrader.market.getDaily(symbol).catch(() => []),
+      OptionSettings.findOne({ user: req.userId }).lean(),
+      optionTrader.todaySummary(req.userId),
+      optionTrader.lossesInARowToday(req.userId),
+    ]);
+    const s = forIndex(raw || new OptionSettings({ user: req.userId }).toObject(), index);
+    const mood = marketMood(c1.filter((c) => istParts(new Date(c.time * 1000)).dateKey === day), daily);
+    const me = {
+      pnl: today.pnl,
+      trades: today.trades,
+      maxTrades: s.maxTrades ?? 3,
+      dailyLoss: ((s.budget ?? 60000) * (s.dailyLossPct ?? 10)) / 100,
+      lossesInARow,
+      lossStreak: s.lossStreak ?? 2,
+      paused: Boolean(s.pausedOn) && s.pausedOn === day,
+      open: today.open,
+      capLoss: true,
+      benched: normalizeCombos(s.combos ?? []).filter((c) => c.benchedOn).map((c) => c.name),
+    };
+    res.json({ index, day, mood, me, ...todayVerdict(mood, me, { minutes: istMinutesNow(now) }), at: now.toISOString() });
+  });
+
   router.post('/buy', validate(buySchema), async (req, res) => {
     const r = await optionTrader.enterManually(req.userId, req.body.type, req.body.lots, req.body.index);
     if (r.skipped) throw badRequest(`Not bought: ${r.skipped}`, 'NOT_BOUGHT');

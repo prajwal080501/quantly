@@ -308,12 +308,13 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
                   <Card className="space-y-1.5 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">{c.name}</div>
+                        <div className="flex items-center gap-1.5 text-sm font-semibold"><span className="truncate">{c.name}</span>{c.benchedOn && !c.on && <Badge tone="warn">Benched {c.benchedOn}</Badge>}</div>
                         <div className="text-[11px] text-muted">{ruleText(fromSaved(c))}</div>
                       </div>
                       <Switch on={c.on} disabled={busy} label={`Use ${c.name}`} onClick={() => toggleOn(c.id)} />
                     </div>
                     <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{c.also?.length ? ` · and must also hold: ${c.also.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}` : ''}{kind === 'options' && c.index ? ` · ${indexWord(c)}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
+                    {c.benchedOn && !c.on && <p className="rounded-lg bg-warn/15 px-2 py-1 text-[11px] leading-snug">Switched off by itself on {c.benchedOn} after losing trades in a row (Account &gt; Limits). Tap its trades in Options &gt; History to replay them before turning it back on.</p>}
                     {kind === 'options' && !c.on && <p className="text-[11px] leading-snug text-muted">Off: the bot does not buy on it, but studies still try it, and one "together" row runs every combination as a set.</p>}
                     <div className="flex items-center justify-end gap-2">
                       <InfoButton keys={[...c.conds, ...(c.also || [])]} title={c.name} rule={ruleText(fromSaved(c))} text="How it works" className="!h-auto !w-auto gap-1 px-2 py-1 text-[11px]" />
