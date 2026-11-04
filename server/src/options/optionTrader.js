@@ -5,7 +5,7 @@ import { forIndex } from './indexSettings.js';
 import { readNifty, entryWindowOf, entryTest } from './signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
-import { breadthSeries } from '../study/optionsStudy.js';
+import { breadthSeries, lossesInARow } from '../study/optionsStudy.js';
 import { buildChart } from '../combos/conditions.js';
 import { comboSignals, normalizeCombos, comboFitsIndex } from '../combos/combos.js';
 import { roundToTick } from '../utils/money.js';
@@ -336,6 +336,11 @@ export class OptionTrader {
       if (settings.pausedOn && settings.pausedOn === this.engine.marketStatus().istDate) return stop('new automatic buys are paused for today (your switch in Options)');
       if (today.trades >= settings.maxTrades) return stop(`already took ${today.trades} option trades today`);
       if (today.pnl <= -(settings.budget * settings.dailyLossPct) / 100) return stop('daily loss limit reached');
+      const streak = settings.lossStreak ?? 2;
+      if (streak > 0) {
+        const lost = await this.lossesInARowToday(userId);
+        if (lost >= streak) return stop(`${lost} losing option trades in a row today: no new automatic buy until tomorrow (Account > Limits, "losses in a row")`);
+      }
       const wait = await this.#coolingDown(userId, side.type);
       if (wait) return stop(wait);
     }
@@ -437,6 +442,12 @@ export class OptionTrader {
     const side = type === 'CE' ? read.ce : read.pe;
     const settings = forIndex({ ...((await OptionSettings.findOne({ user: userId }).lean()) ?? new OptionSettings({ user: userId }).toObject()), user: userId }, index);
     return this.#enter(settings, read, side, { manual: true, lots });
+  }
+
+  /** How many of today's closed option trades lost in a row, counted back from the last one. */
+  async lossesInARowToday(userId) {
+    const closed = await Position.find({ user: userId, segment: 'OPT', status: 'CLOSED', tradingDay: this.engine.marketStatus().istDate }, 'realizedPnl charges closedAt').sort({ closedAt: 1 }).lean();
+    return lossesInARow(closed.map((p) => p.realizedPnl - p.charges));
   }
 
   async #coolingDown(userId, type) {
@@ -576,5 +587,27 @@ export class OptionTrader {
       closedAt: pos.closedAt,
     };
     await AutoLog.updateOne({ _id: log._id, status: 'OPEN' }, { status: 'CLOSED', outcome });
+    if (outcome.netPnl < 0 && !log.detail?.manual && log.detail?.comboId) await this.benchIfCold(userId, log.detail.comboId).catch((e) => logger.warn(`bench check failed: ${e.message}`));
+  }
+
+  /**
+   * The bench (Account > Limits): when a combination's last `benchAfter` live trades all lost, it is switched off by itself and keeps its
+   * place under My combinations with the day it was benched, so a combination that stopped working does not keep losing unwatched.
+   */
+  async benchIfCold(userId, comboId) {
+    const settings = await OptionSettings.findOne({ user: userId });
+    const n = settings?.benchAfter ?? 3;
+    if (!settings || !(n > 0)) return null;
+    const last = await AutoLog.find({ user: userId, segment: 'OPT', decision: 'PLACED', status: 'CLOSED', 'detail.comboId': comboId }, 'outcome.netPnl').sort({ decidedAt: -1 }).limit(n).lean();
+    if (last.length < n || last.some((e) => !(e.outcome?.netPnl < 0))) return null;
+    const list = normalizeCombos(settings.combos);
+    const combo = list.find((c) => c.id === comboId);
+    if (!combo || !combo.on) return null;
+    combo.on = false;
+    combo.benchedOn = this.engine.marketStatus().istDate;
+    settings.combos = list;
+    await settings.save();
+    logger.info(`combination ${combo.name} benched after ${n} losses in a row`);
+    return combo;
   }
 }
