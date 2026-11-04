@@ -10,14 +10,15 @@ import { round2 } from '../utils/money.js';
 export const BE_KEEP = 200; // "break-even": the first rung keeps ₹200, about the charges and slippage of a round trip, so the trade can no longer end in a loss
 export const FIRST_RUNGS = [750, 1000, 1500, 2000, 2500, 3000, 3500];
 export const RUNG_GAPS = [500, 750, 1000, 1500];
-export const EARLY_BE = [1000, 1500, 2000]; // break-even rungs put in front of your own ladder
+export const EARLY_BE = [1000, 1500, 2000, 2500]; // break-even rungs put in front of your own ladder
 export const MIN_SPLIT_DAYS = 6; // fewer saved days than this cannot be split into "pick" and "check" days
 export const MIN_FIT_TRADES = 8; // a ladder is picked only when the older days had at least this many trades
 export const CHASE_LOOKBACKS = [CHASE_MINUTES, 30];
 const MAX_ROWS = 8;
-const BIG_WIN = 1000; // a trade that was this far up at its best and still ended in a loss is a "winner that turned into a loss"
+export const BIG_WIN = 1500; // a trade that was this far up at its best and still ended in a loss is a "winner that turned into a loss"
+export const PROTECT_AT = 1500; // the "protect" pick: ladders whose first rung (stop to break-even or better) is at or below this
 
-const rs = (v) => `₹${Math.round(v).toLocaleString('en-IN')}`;
+const rs = (v) => `${v < 0 ? '-' : ''}₹${Math.abs(Math.round(v)).toLocaleString('en-IN')}`;
 
 /** First rung at `first` moves the stop to break-even, then a rung every `gap` keeps the rung below it: the stop sits one rung behind the best profit. */
 export function rungLadder(first, gap) {
@@ -68,11 +69,40 @@ export function measure(trades) {
     kept: bestSum > 0 ? Math.round((keptSum / bestSum) * 100) : null, // % of the best profit (before charges) that was still there at the sale
     gaveBack: reached.length ? round2((bestSum - keptSum) / reached.length) : null, // rupees a trade gave back from its best, on average
     reversed: trades.filter((t) => t.best >= BIG_WIN && t.net < 0).length,
+    reversedLoss: round2(trades.filter((t) => t.best >= BIG_WIN && t.net < 0).reduce((s, t) => s + t.net, 0)), // what those trades lost in all
+    atBreakEven: trades.filter((t) => t.reason === 'LOCK' && t.gross <= BE_KEEP + 1).length, // sold at the break-even rung: the cost of the early lock
     byExit: m.byExit,
   };
 }
 
 const split = (trades, trainEnd) => ({ all: measure(trades), fit: measure(trades.filter((t) => t.entryTime < trainEnd)), check: measure(trades.filter((t) => t.entryTime >= trainEnd)) });
+
+export const BIG_END = 3000; // a trade that ended this much up with your ladder is a "big winner"
+
+/**
+ * The trade-off of a ladder against yours, on the same entries (same minute and side): trades it saved (yours was up ₹1,500 and ended in
+ * a loss, this one did not lose) and big winners it cut short (yours ended ₹3,000+ up, this one at least ₹1,000 less), each with the rupees.
+ */
+export function tradeOff(yours, theirs) {
+  const mine = new Map(theirs.map((t) => [`${t.entryTime}|${t.side}`, t]));
+  const out = { saved: 0, savedRs: 0, cut: 0, cutRs: 0, matched: 0 };
+  for (const y of yours) {
+    const t = mine.get(`${y.entryTime}|${y.side}`);
+    if (!t) continue;
+    out.matched += 1;
+    if (y.best >= BIG_WIN && y.net < 0 && t.net >= 0) {
+      out.saved += 1;
+      out.savedRs += t.net - y.net;
+    }
+    if (y.net >= BIG_END && t.net <= y.net - 1000) {
+      out.cut += 1;
+      out.cutRs += t.net - y.net;
+    }
+  }
+  out.savedRs = round2(out.savedRs);
+  out.cutRs = round2(out.cutRs);
+  return out;
+}
 
 /** For the grid, a ladder's "pick" score is the average of its own older-days result and its neighbours': a lucky spike next to poor neighbours does not win. */
 function smoothScores(rows) {
@@ -107,6 +137,25 @@ export function recommend(rows, { splitOk }) {
   return { verdict: 'change', key: pick.key, text: `"${pick.label}" did best on the older days and also beat yours on the newest days it never saw: ${rs(pick.check.net)} against ${rs(current.check.net)}.` };
 }
 
+/**
+ * The "protect" pick: the best ladder (older days, neighbour-smoothed) among those that move the stop to break-even or better by +₹1,500,
+ * so a trade that was up ₹1,500 can no longer end in a loss. Always shown, with what it costs against your ladder on the newest days.
+ */
+export function recommendProtect(rows, { splitOk }) {
+  const current = rows.find((r) => r.key === 'current');
+  const firstOf = (r) => r.steps?.[0]?.at ?? Infinity;
+  const pool = rows.filter((r) => r.key !== 'current' && firstOf(r) <= PROTECT_AT && r.steps[0].keep >= BE_KEEP && r.fit.trades >= (splitOk ? MIN_FIT_TRADES : 1)).sort((a, b) => (splitOk ? b.pickScore - a.pickScore : b.all.net - a.all.net) || b.all.net - a.all.net);
+  const pick = pool[0];
+  if (!pick) return null;
+  const diff = round2(pick.all.net - current.all.net);
+  const stopped = `Your ladder: ${current.all.reversed} trade${current.all.reversed === 1 ? ' was' : 's were'} up ${rs(BIG_WIN)} or more and still ended in a loss (${rs(current.all.reversedLoss)} in all). With this one: ${pick.all.reversed}.`;
+  const o = pick.tradeOff;
+  const cost = o ? `On the same entries it saved ${o.saved} trade${o.saved === 1 ? '' : 's'} from turning into a loss (+${rs(o.savedRs)}), and cut ${o.cut} big winner${o.cut === 1 ? '' : 's'} short, ones that dipped and then ended ${rs(BIG_END)}+ up with yours (${rs(o.cutRs)} less on those).` : `The cost: ${pick.all.atBreakEven} trades were sold at break-even.`;
+  const total = diff >= 0 ? `Over all the days it made ${rs(diff)} more than yours.` : `Over all the days it made ${rs(-diff)} less than yours.`;
+  const holds = !splitOk || pick.check.net >= current.check.net;
+  return { key: pick.key, verdict: holds ? 'holds' : 'costs', text: `${stopped} ${cost} ${total}${splitOk ? ` On the newest days, which it was not picked on: ${rs(pick.check.net)} against ${rs(current.check.net)} for yours.` : ''}` };
+}
+
 /** The anti-chase check on the same entries: every threshold, picked on the older days and checked on the newer ones against no check. */
 export function recommendChase(rows, { splitOk }) {
   const off = rows.find((r) => r.key === 'off');
@@ -132,11 +181,17 @@ export async function runLadderTest({ signals, tradesFor, trainEnd, splitOk, par
   for (const [n, c] of list.entries()) {
     if (n % 5 === 0) onProgress(`Trying ladders: ${n + 1}/${list.length}`);
     const { trades } = tradesFor(signals, { ...params, steps: c.steps, chase: params.chase ?? null });
-    rows.push({ ...c, ...split(trades, trainEnd), list: c.key === 'current' ? trades.map(slimTrade) : undefined });
+    rows.push({ ...c, ...split(trades, trainEnd), list: c.key === 'current' ? trades.map(slimTrade) : undefined, raw: trades });
     await yieldTurn();
   }
   smoothScores(rows);
+  const yours = rows.find((r) => r.key === 'current').raw;
+  for (const r of rows) {
+    r.tradeOff = tradeOff(yours, r.raw);
+    delete r.raw;
+  }
   const advice = recommend(rows, { splitOk });
+  const protect = recommendProtect(rows, { splitOk });
   const chosen = rows.find((r) => r.key === (advice.verdict === 'change' ? advice.key : 'current'));
 
   // the anti-chase check, with the chosen ladder
@@ -165,6 +220,7 @@ export async function runLadderTest({ signals, tradesFor, trainEnd, splitOk, par
     signals: signals.length,
     rows: rows.map(({ list: _l, ...r }) => r).sort((a, b) => order(b) - order(a)),
     advice,
+    protect,
     chosen: { key: chosen.key, label: chosen.label, steps: chosen.steps },
     chase: { rows: chaseRows, advice: chaseAdvice, now: params.chase ?? null },
     riseBands,

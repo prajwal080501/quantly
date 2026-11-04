@@ -34,7 +34,24 @@ function Numbers({ r }) {
         <div className="text-muted">{r.check.trades} trades</div>
       </div>
       <div className="col-span-3 text-left text-[11px] text-muted">
-        Kept {r.all.kept ?? '–'}% of the best profit (gave back ₹{Math.round(r.all.gaveBack ?? 0).toLocaleString('en-IN')} a trade on average) · {r.all.reversed} trade{r.all.reversed === 1 ? '' : 's'} up ₹1,000+ that ended in a loss · worst run {formatPnl(-(r.all.maxDrawdown ?? 0))}
+        Kept {r.all.kept ?? '–'}% of the best profit (gave back ₹{Math.round(r.all.gaveBack ?? 0).toLocaleString('en-IN')} a trade on average) · {r.all.reversed} trade{r.all.reversed === 1 ? '' : 's'} up ₹1,500+ that ended in a loss · worst run {formatPnl(-(r.all.maxDrawdown ?? 0))}
+      </div>
+      {r.key !== 'current' && r.tradeOff && <TradeOff o={r.tradeOff} />}
+    </div>
+  );
+}
+
+/** Against your ladder on the same entries: trades saved from a loss, and big winners cut short. */
+function TradeOff({ o, className = 'col-span-3' }) {
+  return (
+    <div className={`${className} grid grid-cols-2 gap-1.5 text-left text-[11px]`}>
+      <div className="rounded-lg bg-up-soft p-1.5">
+        <div className="font-semibold text-up">Saved {o.saved} from a loss</div>
+        <div className="text-muted">yours was up ₹1,500 and lost; this one did not · {formatPnl(o.savedRs)}</div>
+      </div>
+      <div className="rounded-lg bg-down-soft p-1.5">
+        <div className="font-semibold text-down">Cut {o.cut} big winner{o.cut === 1 ? '' : 's'}</div>
+        <div className="text-muted">yours ended ₹3,000+ up, this one ₹1,000+ less · {formatPnl(o.cutRs)}</div>
       </div>
     </div>
   );
@@ -96,6 +113,7 @@ export function LadderTester() {
   const rec = r?.rows?.find((x) => x.key === r.advice?.key);
   const current = r?.rows?.find((x) => x.key === 'current');
   const isSaved = (steps) => savedSteps != null && sameSteps(steps, savedSteps);
+  const protect = r?.protect ? r.rows.find((x) => x.key === r.protect.key) : null;
   const chasePick = r?.chase?.rows?.find((x) => x.key === r.chase.advice?.key);
 
   return (
@@ -156,6 +174,27 @@ export function LadderTester() {
             {r.ownLadder > 0 && <p className="text-[11px] text-warn">{r.ownLadder} of your combinations have their own ladder. Their trades keep it in this test, and Use does not change it.</p>}
             {r.combosSkipped?.length > 0 && <p className="text-[11px] text-muted">Not in the test (data missing): {r.combosSkipped.join(', ')}.</p>}
           </Card>
+
+          {protect && (
+            <Card className="space-y-2 p-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h3 className="text-sm font-semibold">Stop trades from going +₹1,500 to a loss</h3>
+                <Badge tone={r.protect.verdict === 'holds' ? 'up' : 'warn'}>{r.protect.verdict === 'holds' ? 'Held up on the newest days' : 'Costs money on the newest days'}</Badge>
+              </div>
+              <p className="text-[11px] text-muted">The best ladder that moves the stop to break-even (or better) by +₹1,500, so a trade that was up ₹1,500 can no longer end in a loss. The price is that a trade which dips back after +₹1,500 and then runs to a big win gets sold at break-even instead.{protect.key === r.advice.key ? ' It is also the recommended ladder above.' : ''}</p>
+              <p className="text-xs">{r.protect.text}</p>
+              <div className="font-semibold text-xs">{protect.label}</div>
+              <Rungs steps={protect.steps} />
+              <Numbers r={protect} />
+              {isSaved(protect.steps) ? (
+                <p className="flex items-center gap-1 text-xs text-up"><Check className="h-4 w-4" /> In use now</p>
+              ) : (
+                <button type="button" className={`btn w-full ${r.protect.verdict === 'holds' ? 'btn-primary' : 'btn-secondary'}`} disabled={busy} onClick={() => applyLadder(protect)}>
+                  Use this ladder
+                </button>
+              )}
+            </Card>
+          )}
 
           <Card className="space-y-2 p-3">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold">
@@ -223,7 +262,8 @@ export function LadderTester() {
                     <Money v={x.all.net} className="shrink-0 text-sm" />
                   </div>
                   <p className="num text-[11px] text-muted">
-                    {x.all.trades} trades · {x.all.winRate ?? '–'}% win · older <Money v={x.fit.net} /> · newest <Money v={x.check.net} /> · kept {x.all.kept ?? '–'}% · {x.all.reversed} winners lost
+                    {x.all.trades} trades · {x.all.winRate ?? '–'}% win · older <Money v={x.fit.net} /> · newest <Money v={x.check.net} /> · kept {x.all.kept ?? '–'}% · {x.all.reversed} up ₹1,500 then lost
+                    {x.key !== 'current' && x.tradeOff ? ` · vs yours: saved ${x.tradeOff.saved}, cut ${x.tradeOff.cut} big winner${x.tradeOff.cut === 1 ? '' : 's'}` : ''}
                   </p>
                   {x.key !== 'current' && !isSaved(x.steps) && (
                     <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => applyLadder(x)}>
