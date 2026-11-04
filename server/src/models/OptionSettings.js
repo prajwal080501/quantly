@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { comboSchema } from '../combos/schema.js';
 import { INDEX_KEYS } from '../options/symbols.js';
+import { MOVED_KEYS } from '../options/moved.js';
 
 // Per-user switches for the paper options trader. Off until the user turns it on.
 const optionSettingsSchema = new mongoose.Schema(
@@ -40,6 +41,9 @@ const optionSettingsSchema = new mongoose.Schema(
     breakEvenPoints: { type: Number, default: 0, min: 0, max: 200 }, // 0 = off; otherwise once the index has moved this many points your way the stop moves to the entry price
     chasePct: { type: Number, default: 0, min: 0, max: 200 }, // 0 = off; otherwise no buy while the premium is more than this % above its low of the last chaseMinutes (the anti-chase check, options/chase.js)
     chaseMinutes: { type: Number, default: 15, min: 5, max: 60 },
+    movedCheck: { type: String, enum: ['off', ...MOVED_KEYS], default: 'off' }, // the "already moved" check on the index (options/moved.js): which measure...
+    movedLimit: { type: Number, default: 0, min: 0, max: 100 }, // ...and the most it may show in the trade's direction (0 = off)
+    pausedOn: { type: String, default: null }, // 'YYYY-MM-DD' (IST): no new automatic buy on that day; open trades are still managed
     comboMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a combination is bought only while the chart score of its side is at least this
     patternMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a pattern is bought only while the chart score of its side is at least this (the study's "Patterns, score 70+")
     scoreEntries: { type: Boolean, default: false }, // no longer used: the all-checks score does not buy any more (patterns and combinations do)

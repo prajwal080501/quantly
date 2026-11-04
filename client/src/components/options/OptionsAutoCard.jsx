@@ -224,9 +224,20 @@ export function OptionsAutoCard({ data, reload }) {
       <p className="text-[11px] leading-snug text-muted">
         Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}. Change this in Account &gt; Entries.
       </p>
+      {s.enabled && (
+        <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 p-2">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Pause new buys for today.</b> {s.pausedToday ? 'Paused: no new automatic buy until tomorrow. Open trades keep their stops and exits.' : 'Use it when the market has already made its move and you do not want the bot chasing it. It switches itself back on tomorrow.'}
+          </p>
+          <Switch on={Boolean(s.pausedToday)} disabled={busy} label="Pause new buys for today" onClick={() => save({ pauseToday: !s.pausedToday })} />
+        </div>
+      )}
       <p className="text-[11px] leading-snug text-muted">
+        {s.movedText ? `${s.movedText}. ` : 'No limit on how far the market already moved. '}
         {s.chasePct > 0 ? `Skips a buy when the premium is over ${s.chasePct}% above its ${s.chaseMinutes ?? 15}-minute low. ` : ''}
-        <Link to="/research?tab=ladder" className="font-semibold text-accent">Test profit ladders on the saved prices</Link>
+        Each skip and its reason is in the Options log.{' '}
+        <Link to="/research?tab=moved" className="font-semibold text-accent">Test the already-moved check</Link> ·{' '}
+        <Link to="/research?tab=ladder" className="font-semibold text-accent">Test profit ladders</Link>
       </p>
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>
