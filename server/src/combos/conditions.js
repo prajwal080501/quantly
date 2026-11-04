@@ -17,7 +17,7 @@ const crossUp = (a, b, i) => {
   return i > 0 && gt(at(a, i), at(b, i)) && num(at(a, i - 1)) && num(at(b, i - 1)) && at(a, i - 1) <= at(b, i - 1);
 };
 
-export const GROUPS = ['Trend', 'Momentum', 'Volatility', 'Volume and VWAP', 'Candles', 'Market', 'Time of day', 'Chart patterns', 'News'];
+export const GROUPS = ['Trend', 'Momentum', 'Volatility', 'Volume and VWAP', 'Pivots and levels', 'Candles', 'Market', 'Time of day', 'Chart patterns', 'News'];
 
 export const CONDITIONS = [];
 const add = (group, key, label, text, test, o = {}) => CONDITIONS.push({ key, label, group, text, kind: o.event ? 'event' : 'state', needs: o.needs || null, test });
@@ -210,6 +210,96 @@ add('Volume and VWAP', 'volDryBreak', 'Quiet bars, then a break on volume', 'Thr
 add('Time of day', 'notMidday', 'Not midday (skips 11:30 to 13:30)', 'Real-price tests found the midday lull wins least often. Use it as a filter beside an entry check.', (c, i) => c.minutes(i) < 690 || c.minutes(i) >= 810);
 add('Time of day', 'firstHour', 'First hour after the open (09:30 to 10:30)', 'The hour most big one-way days are decided.', (c, i) => c.minutes(i) >= 570 && c.minutes(i) < 630);
 
+// ---------- Pivots and levels (added 4 Nov 2026): yesterday's high, low and close turned into today's lines. No volume needed. ----------
+// Floor pivot P = (H + L + C) / 3; the CPR runs from (H + L) / 2 to 2P minus that; R1 = 2P - L; Camarilla H3/H4 = C + 1.1 x range / 4 and / 2.
+const LV = (c, i) => c.lv(i);
+const firstAbove = (c, i, level) => {
+  if (!num(level) || !(c.C[i] > level)) return false;
+  const ds = c.dayStartOf(i);
+  for (let k = ds; k < i; k++) if (c.C[k] > level) return false;
+  return c.O[ds] <= level;
+};
+add('Pivots and levels', 'abovePivot', "Price above today's pivot", "The close is over the floor pivot, (yesterday's high + low + close) / 3: the day leans to buyers.", (c, i) => gt(c.C[i], LV(c, i)?.pp));
+add('Pivots and levels', 'aboveCpr', 'Price above the CPR', "The close is over the whole central pivot range (the pivot and the middle of yesterday's high and low).", (c, i) => gt(c.C[i], LV(c, i)?.cprTop));
+add('Pivots and levels', 'cprBreakUp', 'First close above the CPR today', 'Price opened at or under the CPR and has just closed over it for the first time today.', (c, i) => firstAbove(c, i, LV(c, i)?.cprTop), { event: true });
+add('Pivots and levels', 'cprNarrow', 'Narrow CPR day', "Today's CPR is under 60% of its average width over the last 5 days. Indian traders read a narrow CPR as a likely trending day. No direction by itself.", (c, i) => {
+  const lv = LV(c, i);
+  return Boolean(lv) && num(lv.widthAvg) && lv.widthAvg > 0 && lv.cprWidth < 0.6 * lv.widthAvg;
+});
+add('Pivots and levels', 'cprWide', 'Wide CPR day', "Today's CPR is over 1.5 times its 5-day average width: usually a sideways day, better for fades than breakouts. No direction by itself.", (c, i) => {
+  const lv = LV(c, i);
+  return Boolean(lv) && num(lv.widthAvg) && lv.widthAvg > 0 && lv.cprWidth > 1.5 * lv.widthAvg;
+});
+add('Pivots and levels', 'cprHigher', "Today's CPR above yesterday's", "The whole of today's CPR sits over yesterday's: value is moving up (an ascending CPR).", (c, i) => {
+  const lv = LV(c, i);
+  return Boolean(lv?.prev) && gt(lv.cprBottom, lv.prev.cprTop);
+});
+add('Pivots and levels', 'pivotHold', 'Pullback to the pivot that holds', 'Price dipped to within 0.3 ATR of the pivot (or the CPR top) in the last 3 bars and a bullish bar closes back over it.', (c, i) => {
+  const lv = LV(c, i);
+  if (!lv || i < 3 || !num(c.atr[i]) || c.dayStartOf(i) > i - 3) return false;
+  const level = Math.max(lv.pp, lv.cprTop);
+  const touched = [0, 1, 2].some((k) => c.L[i - k] - level <= 0.3 * c.atr[i]);
+  return touched && c.C[i] > level && c.C[i] > c.O[i] && c.C[i - 3] > level - 0.3 * c.atr[i];
+}, { event: true });
+add('Pivots and levels', 'r1Break', 'First close above R1 today', "Price breaks the first resistance, 2 x pivot - yesterday's low: a strong day.", (c, i) => firstAbove(c, i, LV(c, i)?.r1), { event: true });
+add('Pivots and levels', 'aboveR1', 'Price above R1', 'Trading over the first floor resistance.', (c, i) => gt(c.C[i], LV(c, i)?.r1));
+add('Pivots and levels', 'camH4Up', 'Breaks the Camarilla H4', "First close of the day over H4 (yesterday's close + 1.1 x range / 2): Camarilla traders treat it as a breakout and a possible trend day.", (c, i) => firstAbove(c, i, LV(c, i)?.h4), { event: true });
+add('Pivots and levels', 'camL3Up', 'Reclaims the Camarilla L3', 'On a day that opened inside H3 and L3, price closes back over L3 after being under it: the range-day fade.', (c, i) => {
+  const lv = LV(c, i);
+  const ds = c.dayStartOf(i);
+  return Boolean(lv) && i > ds && c.O[ds] > lv.l3 && c.O[ds] < lv.h3 && c.C[i - 1] <= lv.l3 && c.C[i] > lv.l3;
+}, { event: true });
+add('Pivots and levels', 'camInside', 'Inside the Camarilla H3 to L3', 'Price is between H3 and L3: a balanced, range-bound reading. No direction by itself.', (c, i) => {
+  const lv = LV(c, i);
+  return Boolean(lv) && c.C[i] > Math.min(lv.l3, lv.h3) && c.C[i] < Math.max(lv.l3, lv.h3);
+});
+add('Pivots and levels', 'aboveYValue', "Above yesterday's value area", 'Price is over the top of where yesterday spent 70% of its time (market profile, by time at price): buyers accept higher prices.', (c, i) => gt(c.C[i], LV(c, i)?.vah));
+add('Pivots and levels', 'abovePoc', "Above yesterday's busiest price", "Price is over yesterday's point of control, the price it spent most time at.", (c, i) => gt(c.C[i], LV(c, i)?.poc));
+add('Pivots and levels', 'vaBack', 'Back into value from below (80% rule)', "The day opened under yesterday's value area and has now closed inside it twice in a row: price often crosses the whole area.", (c, i) => {
+  const lv = LV(c, i);
+  const ds = c.dayStartOf(i);
+  return Boolean(lv) && num(lv.val) && i >= ds + 2 && c.O[ds] < lv.val && c.C[i] > lv.val && c.C[i - 1] > lv.val && c.C[i - 2] <= lv.val;
+}, { event: true });
+add('Pivots and levels', 'insideYRange', "Opened inside yesterday's range", "Today opened between yesterday's high and low: no gap, so levels matter more. No direction by itself.", (c, i) => {
+  const lv = LV(c, i);
+  const ds = c.dayStartOf(i);
+  return Boolean(lv) && c.O[ds] < lv.h && c.O[ds] > lv.l;
+});
+
+// ---------- More indicators (added 4 Nov 2026) ----------
+add('Momentum', 'rsi2Dip', 'RSI (2) dip bought in an uptrend', 'Connors style: the 2-bar RSI was under 10 and turns back over it while price is over the 50 EMA. A short dip in a rising market.', (c, i) => i > 0 && lt(c.rsi(2)[i - 1], 10) && ge(c.rsi(2)[i], 10) && gt(c.C[i], c.ema(50)[i]), { event: true });
+add('Momentum', 'rsi2Low', 'RSI (2) under 10', 'A very short-term oversold reading. On its own it fights the move; pair it with a trend check.', (c, i) => lt(c.rsi(2)[i], 10));
+add('Trend', 'diCross', '+DI crosses over -DI (ADX over 20)', 'Buyers take over the directional movement while a trend exists.', (c, i) => crossUp(c.dmi().pdi, c.dmi().ndi, i) && gt(c.dmi().adx[i], 20), { event: true });
+add('Trend', 'adx25Rising', 'ADX over 25 and rising, buyers lead', 'A strong trend that is still getting stronger, with +DI over -DI.', (c, i) => i >= 3 && gt(c.dmi().adx[i], 25) && gt(c.dmi().adx[i], c.dmi().adx[i - 3]) && gt(c.dmi().pdi[i], c.dmi().ndi[i]));
+add('Candles', 'haBull', 'Heikin-Ashi: two strong green bars', 'The last two Heikin-Ashi candles are green with no lower wick: a smooth push up.', (c, i) => {
+  if (i < 1) return false;
+  const h = c.ha();
+  return [i, i - 1].every((k) => h[k].close > h[k].open && h[k].low >= Math.min(h[k].open, h[k].close) - 1e-9);
+});
+add('Candles', 'haFlip', 'Heikin-Ashi turns green', 'The first green Heikin-Ashi candle after two red ones.', (c, i) => {
+  if (i < 2) return false;
+  const h = c.ha();
+  return h[i].close > h[i].open && h[i - 1].close < h[i - 1].open && h[i - 2].close < h[i - 2].open;
+}, { event: true });
+add('Volatility', 'bbSqueezeBreak', 'Bollinger squeeze, then a close above the upper band', 'The bands were the narrowest of the last 50 bars within the last 6 bars, and price now closes over the upper band.', (c, i) => {
+  if (i < 56) return false;
+  const w = c.bbWidth();
+  const recent = w.slice(i - 6, i).filter(num);
+  const past = w.slice(i - 56, i - 6).filter(num);
+  return recent.length > 0 && past.length > 20 && Math.min(...recent) <= Math.min(...past) && gt(c.C[i], c.bb().upper[i]);
+}, { event: true });
+add('Volatility', 'donchian55', '55-bar high broken (about 4.5 hours)', 'The close beats the highest high of the 55 bars before: the turtle-style breakout.', (c, i) => i >= 55 && c.C[i] > Math.max(...c.H.slice(i - 55, i)));
+add('Volume and VWAP', 'vwapBand1', 'Price over VWAP + 1 standard deviation', 'Holding over the first VWAP band: a trend day reading.', (c, i) => {
+  const b = c.vwapBand();
+  return Boolean(b) && num(b.vwap[i]) && num(b.sd[i]) && b.sd[i] > 0 && c.C[i] > b.vwap[i] + b.sd[i];
+}, V);
+add('Volume and VWAP', 'vwapBand2Fade', 'Back inside from under VWAP - 2 standard deviations', 'Price was under the lower 2-deviation band and closes back over it: a stretched fall snapping back.', (c, i) => {
+  const b = c.vwapBand();
+  return Boolean(b) && i > 0 && num(b.sd[i]) && num(b.sd[i - 1]) && c.C[i - 1] < b.vwap[i - 1] - 2 * b.sd[i - 1] && c.C[i] > b.vwap[i] - 2 * b.sd[i];
+}, { ...V, event: true });
+add('Volume and VWAP', 'aboveVwap2d', 'Above the 2-day anchored VWAP', "Price is over the VWAP anchored at yesterday's open: buyers of the last two days are in profit.", (c, i) => gt(c.C[i], c.vwap2d()?.[i]), V);
+add('Volume and VWAP', 'mfiCross50', 'Money flow index crosses up through 50', 'The volume-weighted RSI turns to buying.', (c, i) => crossUp(c.mfi() || [], 50, i), { ...V, event: true });
+
 // ---------- Chart patterns: the study's patterns, as events ----------
 for (const t of TECHNIQUES) {
   CONDITIONS.push({
@@ -396,6 +486,28 @@ function makeView(chart, d, flow, news) {
       return out;
     }),
     minutes: (i) => get('minutes', () => chart.bars.map((b) => istParts(new Date((b.time + 300) * 1000)).minutes))[i],
+    // yesterday's pivot, CPR, Camarilla and value area for bar i's day (study/levels.js), null on the first day of the data
+    lv: (i) => v.levels?.[i] ?? null,
+    ha: () => get('ha', () => S.heikinAshi(bars)),
+    vwapBand: () => (vol ? get('vwapBand', () => S.anchoredVwap(bars, vol, dayOf)) : null),
+    // VWAP anchored at yesterday's first bar: today's bars weigh in with all of yesterday's
+    vwap2d: () => (vol ? get('vwap2d', () => {
+      const out = new Array(bars.length).fill(null);
+      const starts = [...new Set(prep.dayStart)];
+      for (let n = 1; n < starts.length; n++) {
+        const to = n + 1 < starts.length ? starts[n + 1] : bars.length;
+        let w = 0;
+        let pv = 0;
+        for (let k = starts[n - 1]; k < to; k++) {
+          if (vol[k] > 0) {
+            w += vol[k];
+            pv += ((bars[k].high + bars[k].low + bars[k].close) / 3) * vol[k];
+          }
+          if (k >= starts[n]) out[k] = w > 0 ? pv / w : null;
+        }
+      }
+      return out;
+    }) : null),
     pat: (key) => chart.patterns[d].get(key) || new Map(),
     newsAt: (i) => (news ? (news(i) || 0) * d : 0),
   };

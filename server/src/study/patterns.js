@@ -1,5 +1,6 @@
 import { supertrend, emaValues, atr } from '../signals/indicators.js';
 import { istParts } from '../market/marketHours.js';
+import { dayLevels } from './levels.js';
 import { FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
 
 // Each way of reading the Nifty chart that the study tests, written as "does this 5-minute bar, which has just closed, complete the
@@ -30,6 +31,11 @@ export const TECHNIQUES = [
   { key: 'vwapReclaim', label: 'VWAP reclaim / rejection', extra: true, needs: 'flow', text: 'Price closed under the volume-weighted average for 3 bars, then closes back above it on 1.2 times the usual volume. Stop under the last 6 bars. The index has no volume of its own, so VWAP and volume are built from the traded value of the 50 stocks.' },
   { key: 'vwapPullback', label: 'VWAP pullback in a trend', extra: true, needs: 'flow', text: 'The index has held above a rising VWAP (8 of the last 12 bars), dips to touch it and closes above the previous bar high. Stop under the dip.' },
   { key: 'volumeBreakout', label: 'Breakout on high volume', extra: true, needs: 'flow', text: 'The breakout of the last hour, on at least 1.5 times the usual volume (traded value of the 50 stocks). Stop under the last 6 bars.' },
+  // Added 4 Nov 2026 from well-known Indian intraday setups (CPR, Camarilla, market profile). They use yesterday's high, low and close only.
+  { key: 'cprBreak', label: 'CPR breakout', extra: true, text: "The first close of the day above the central pivot range (yesterday's pivot and the mid of its high and low), on a day that opened under it. Traders watch it most on a narrow-CPR day. Stop under the last 6 bars." },
+  { key: 'camH4Break', label: 'Camarilla H4 / L4 breakout', extra: true, text: "The first close of the day beyond the Camarilla H4 (call) or L4 (put), yesterday's close plus half of its range times 1.1: often the start of a trend day. Stop under H3 or the last 6 bars, whichever is nearer." },
+  { key: 'camL3Reclaim', label: 'Camarilla L3 / H3 reversal', extra: true, text: 'On a day that opened inside H3 and L3, price dips under L3 and a bullish bar closes back over it (for a put: pokes over H3 and closes back under). A range-day fade. Stop under the last 6 bars.' },
+  { key: 'vaReentry', label: 'Back into value (80% rule)', extra: true, text: "The day opened under yesterday's value area (where it spent 70% of its time) and then closes back inside it twice in a row: price often travels across the whole area. Stop under the last 6 bars." },
   { key: 'volumeClimax', label: 'Volume climax at a low / high', extra: true, needs: 'flow', text: 'A bar at the 20-bar low on 2.5 times the usual volume that closes in its top half: sellers look exhausted. Stop under the bar.' },
 ];
 
@@ -66,6 +72,12 @@ export function prepare(bars, breadth = null, flow = null) {
   const dayOf0 = bars.map((b) => Math.floor((b.time + 19800) / 86400));
   const hasFlow = Array.isArray(flow) && flow.length === bars.length && flow.some((x) => x > 0);
   const vwap = hasFlow ? vwapSeries(bars, flow, dayOf0) : null;
+  const dayStart = [];
+  let start = 0;
+  for (let i = 0; i < bars.length; i++) {
+    if (i > 0 && dayOf0[i] !== dayOf0[i - 1]) start = i;
+    dayStart.push(start);
+  }
   for (const d of [1, -1]) {
     const view = d > 0 ? bars : bars.map(mirror);
     const closes = view.map((b) => b.close);
@@ -77,14 +89,8 @@ export function prepare(bars, breadth = null, flow = null) {
       e50: emaValues(closes, 50),
       breadth: breadth ? breadth.map((v) => (v == null ? null : d > 0 ? v : 1 - v)) : null,
       vwap: vwap ? vwap.map((x) => (x == null ? null : d > 0 ? x : -x)) : null,
+      levels: dayLevels(view, dayStart), // yesterday's pivot, CPR, Camarilla and value area, as seen from this side
     };
-  }
-  const dayOf = bars.map((b) => Math.floor((b.time + 19800) / 86400));
-  const dayStart = [];
-  let start = 0;
-  for (let i = 0; i < bars.length; i++) {
-    if (i > 0 && dayOf[i] !== dayOf[i - 1]) start = i;
-    dayStart.push(start);
   }
   const atrAt = bars.map((_, i) => (i >= 15 ? atr(bars.slice(Math.max(0, i - 40), i + 1), 14) : null));
   const turn = hasFlow ? flow : null;
@@ -328,8 +334,47 @@ function volumeClimax(v, i, ds, a, p) {
   return { stop: c.low - BUFFER_ATR * a, note: 'heavy volume at a low, closed off it' };
 }
 
+// Added 4 Nov 2026: day levels from yesterday's high, low and close (see levels.js). Index only, no volume needed.
+const firstCloseAbove = (b, ds, i, level) => {
+  if (!(b[i].close > level)) return false;
+  for (let k = ds; k < i; k++) if (b[k].close > level) return false; // only the first close above it today
+  return b[ds].open <= level; // a day that opened above it never broke it
+};
+
+function cprBreak(v, i, ds, a) {
+  const b = v.bars;
+  const lv = v.levels?.[i];
+  if (!lv || i - ds < 2 || !firstCloseAbove(b, ds, i, lv.cprTop) || !(b[i].close < lv.cprTop + a)) return null;
+  return { stop: lowest(b, i - 5, i) - BUFFER_ATR * a, note: 'first close above the CPR' };
+}
+
+function camH4Break(v, i, ds, a) {
+  const b = v.bars;
+  const lv = v.levels?.[i];
+  if (!lv || i - ds < 2 || !firstCloseAbove(b, ds, i, lv.h4) || !(b[i].close < lv.h4 + a)) return null;
+  return { stop: Math.max(lv.h3, lowest(b, i - 5, i)) - BUFFER_ATR * a, note: 'broke the Camarilla H4' };
+}
+
+function camL3Reclaim(v, i, ds, a) {
+  const b = v.bars;
+  const lv = v.levels?.[i];
+  if (!lv || i - ds < 2 || !(b[ds].open > lv.l3 && b[ds].open < lv.h3)) return null; // a range-day open, inside H3/L3
+  if (!(b[i - 1].close <= lv.l3 && b[i].close > lv.l3 && b[i].close > b[i].open)) return null;
+  for (let k = ds; k < i - 1; k++) if (b[k].close <= lv.l3 && b[k + 1].close > lv.l3) return null; // only the first reclaim of the day
+  return { stop: lowest(b, i - 5, i) - BUFFER_ATR * a, note: 'dipped under the Camarilla L3 and closed back over it' };
+}
+
+function vaReentry(v, i, ds, a) {
+  const b = v.bars;
+  const lv = v.levels?.[i];
+  if (!lv || lv.val == null || i - ds < 3 || !(b[ds].open < lv.val)) return null; // opened under yesterday's value area
+  if (!(b[i].close > lv.val && b[i - 1].close > lv.val && b[i - 2].close <= lv.val)) return null; // the second close in a row back inside
+  for (let k = ds + 1; k < i - 1; k++) if (b[k].close > lv.val && b[k - 1].close > lv.val) return null; // only the first time today
+  return { stop: lowest(b, i - 5, i) - BUFFER_ATR * a, note: "back inside yesterday's value area (80% rule)" };
+}
+
 const NEEDS_FLOW = new Set(TECHNIQUES.filter((t) => t.needs === 'flow').map((t) => t.key));
-const DETECTORS = { doubleBottom: (v, i, ds, a) => doubleBottom(v, i, ds, a), doubleBottomMid: (v, i, ds, a) => doubleBottom(v, i, ds, a, true), reversal, breakout, orb, pullback, engulfing, pinBar, insideBar, supertrend: supertrendFlip, emaCross, breadth: breadthLed, orb30, pdBreak, momentumBar, vwapReclaim, vwapPullback, volumeBreakout, volumeClimax };
+const DETECTORS = { cprBreak, camH4Break, camL3Reclaim, vaReentry, doubleBottom: (v, i, ds, a) => doubleBottom(v, i, ds, a), doubleBottomMid: (v, i, ds, a) => doubleBottom(v, i, ds, a, true), reversal, breakout, orb, pullback, engulfing, pinBar, insideBar, supertrend: supertrendFlip, emaCross, breadth: breadthLed, orb30, pdBreak, momentumBar, vwapReclaim, vwapPullback, volumeBreakout, volumeClimax };
 
 /**
  * Every signal the techniques give over the prepared bars: { technique, side, i, time, close, stop, note, atr }.
