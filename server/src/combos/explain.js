@@ -18,6 +18,15 @@ const FAMILIES = [
   [/^(aboveDayOpen|aboveYClose|aboveYHigh|aboveDayMean|nearDayHigh|yHighBreak|gapUp|openDrive)/, "The day's levels", "Where price stands against the day's own reference prices: today's open, yesterday's close and high, today's high. They are levels many traders watch."],
   [/^(aboveOR|orBreakEvent)/, 'Opening range', 'The high and low of the first 15 minutes (09:15 to 09:30). A move out of it after 09:30 often sets the direction of the morning.'],
   [/^trix/, 'TRIX', 'The rate of change of an EMA smoothed three times. Above zero means the smoothed trend is rising. It is slow and filters out small wiggles.'],
+  [/^rsi2/, 'RSI (2), Connors style', 'An RSI over only the last 2 bars, from 0 to 100. Under 10 means the last two bars fell hard. Larry Connors used it to buy short dips inside a rising market, so it is paired with a trend check (price over the 50 EMA).'],
+  [/^(abovePivot|aboveCpr|cprBreakUp|cprNarrow|cprWide|cprHigher|pivotHold)/, 'Pivot and CPR (central pivot range)', "Lines worked out each morning from yesterday's high (H), low (L) and close (C). Pivot P = (H + L + C) / 3. The CPR runs from (H + L) / 2 to 2P minus that. Above the CPR the day leans to buyers. A narrow CPR is read by many Indian traders as a likely trending day, a wide one as a likely sideways day."],
+  [/^(r1Break|aboveR1)/, 'Floor pivots R1 and S1', "R1 = 2 x pivot - yesterday's low is the first resistance above the pivot; S1 = 2 x pivot - yesterday's high the first support. Closing through R1 means the day is strong enough to clear the first level traders expected to stop it."],
+  [/^cam/, 'Camarilla pivots', "Levels set from yesterday's close and range (high - low): H3 = close + 1.1 x range / 4, H4 = close + 1.1 x range / 2, and L3, L4 the same distance below. Traders fade H3 and L3 on a quiet day and ride a break of H4 or L4 as a possible trend day."],
+  [/^(aboveYValue|abovePoc|vaBack)/, "Yesterday's value area (market profile)", "Where yesterday spent its time: the app counts how many 5-minute bars touched each price. The busiest price is the point of control (POC); the value area is the band round it holding 70% of the time. The 80% rule says a day that opens outside value and gets back inside it often travels across the whole area."],
+  [/^insideYRange/, "Yesterday's range", "Yesterday's high and low. A day that opens inside them has no gap, so yesterday's levels tend to matter more."],
+  [/^diCross/, 'ADX and DI (directional movement)', 'ADX measures how strong a trend is (not its direction): under 20 is a weak or sideways market, over 25 a strong trend. +DI and -DI measure up moves against down moves over 14 bars; the bigger one tells who is leading.'],
+  [/^ha/, 'Heikin-Ashi candles', 'Smoothed candles: each one opens at the middle of the previous Heikin-Ashi candle and closes at the average of the real open, high, low and close. Runs of green bars with no lower wick show a steady push up; the colour flips later than real candles but with less noise.'],
+  [/^donchian/, 'Donchian channel (turtle breakout)', 'The highest high of the last N bars. A close over it is a breakout of everything in that window; 55 bars is about four and a half hours of 5-minute bars.'],
   [/^rsi/, 'RSI (relative strength index)', 'Compares the size of up closes with down closes over the last 14 bars (7 for the fast one), from 0 to 100. Over 50 buyers lead, over 70 is stretched (overbought), under 30 oversold.'],
   [/^macd/, 'MACD', 'The 12-bar EMA minus the 26-bar EMA (the MACD line), its 9-bar average (the signal line), and the gap between the two (the histogram). Line over signal, or a growing histogram, means momentum is turning up.'],
   [/^stoch/, 'Stochastic', 'Where the close sits inside the high-low range of the last 14 bars, from 0 (at the low) to 100 (at the high). %K is that value, %D its 3-bar average.'],
@@ -67,6 +76,10 @@ const PATTERN_IDEA = {
   vwapPullback: 'In a day held above a rising VWAP, a dip to VWAP is a chance to buy at the day average.',
   volumeBreakout: 'The last-hour breakout, but only with real money behind it.',
   volumeClimax: 'A heavy-volume bar at the low that closes in its top half: the last sellers are out.',
+  cprBreak: "Price opened under the central pivot range and climbs through it: buyers accept prices over yesterday's balance.",
+  camH4Break: 'Yesterday-based H4 is where Camarilla traders expect a quiet day to stop; a close through it says today is not quiet.',
+  camL3Reclaim: 'On a range-bound open, a dip under L3 that is bought straight back is a failed breakdown: fade it back into the range.',
+  vaReentry: "A day that opens under yesterday's value but gets back inside it tends to cross the whole area (the 80% rule of market profile).",
 };
 
 const familyOf = (key) => FAMILIES.find(([re]) => re.test(key));

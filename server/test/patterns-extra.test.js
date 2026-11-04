@@ -107,7 +107,7 @@ test('volume climax: a heavy bar at a 20-bar low that closes in its top half', (
 
 test('the new techniques are flagged so the old "together" rows keep their meaning, and the volume ones are held back without volume', () => {
   const extra = TECHNIQUES.filter((t) => t.extra).map((t) => t.key);
-  assert.deepEqual(extra.sort(), ['momentumBar', 'orb30', 'pdBreak', 'volumeBreakout', 'volumeClimax', 'vwapPullback', 'vwapReclaim']);
+  assert.deepEqual(extra.sort(), ['camH4Break', 'camL3Reclaim', 'cprBreak', 'momentumBar', 'orb30', 'pdBreak', 'vaReentry', 'volumeBreakout', 'volumeClimax', 'vwapPullback', 'vwapReclaim']);
   const flowKeys = TECHNIQUES.filter((t) => !available(t, { flow: false, breadth: true })).map((t) => t.key);
   assert.deepEqual(flowKeys.sort(), ['vwapPullback', 'vwapReclaim', 'volumeBreakout', 'volumeClimax'].sort());
 });

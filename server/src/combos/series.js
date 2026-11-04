@@ -430,3 +430,43 @@ export function vwap(bars, weight, dayOf) {
     return w > 0 ? pv / w : null;
   });
 }
+
+/**
+ * VWAP with its standard-deviation band, anchored at the first bar of each block (`blockOf[i]` changes where a new anchor starts):
+ * the day for the usual VWAP, or two days for a VWAP anchored at yesterday's open. Returns { vwap, sd }.
+ */
+export function anchoredVwap(bars, weight, blockOf) {
+  let w = 0;
+  let pv = 0;
+  let pv2 = 0;
+  const vw = [];
+  const sd = [];
+  bars.forEach((b, i) => {
+    if (i === 0 || blockOf[i] !== blockOf[i - 1]) {
+      w = 0;
+      pv = 0;
+      pv2 = 0;
+    }
+    if (ok(weight[i]) && weight[i] > 0) {
+      const tp = (b.high + b.low + b.close) / 3;
+      w += weight[i];
+      pv += tp * weight[i];
+      pv2 += tp * tp * weight[i];
+    }
+    const mean = w > 0 ? pv / w : null;
+    vw.push(mean);
+    sd.push(mean == null ? null : Math.sqrt(Math.max(0, pv2 / w - mean * mean)));
+  });
+  return { vwap: vw, sd };
+}
+
+/** Heikin-Ashi candles: { open, close, high, low } smoothed from the real ones. */
+export function heikinAshi(bars) {
+  const out = [];
+  bars.forEach((b, i) => {
+    const close = (b.open + b.high + b.low + b.close) / 4;
+    const open = i === 0 ? (b.open + b.close) / 2 : (out[i - 1].open + out[i - 1].close) / 2;
+    out.push({ open, close, high: Math.max(b.high, open, close), low: Math.min(b.low, open, close) });
+  });
+  return out;
+}
