@@ -232,6 +232,27 @@ export function OptionsAutoCard({ data, reload }) {
           <Switch on={Boolean(s.pausedToday)} disabled={busy} label="Pause new buys for today" onClick={() => save({ pauseToday: !s.pausedToday })} />
         </div>
       )}
+      <div className="space-y-2 rounded-lg bg-surface-2 p-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Safety rules (the study, finder and Lab replay them too)</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">With the day only.</b> Calls only while the index is above both today's open and today's average, puts only below both. On 4 Nov the ₹3,955 loss was a put bought on an up day.
+          </p>
+          <Switch on={Boolean(s.withDay)} disabled={busy} label="With the day only" onClick={() => save({ withDay: !s.withDay })} />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">New combinations start at 1 lot.</b> A combination is bought with 1 lot until it has 10 closed live trades. A study of 10 days is a handful of trades; live is the real test.
+          </p>
+          <Switch on={s.probation !== false} disabled={busy} label="New combinations start at 1 lot" onClick={() => save({ probation: s.probation === false })} />
+        </div>
+        <div className="space-y-1">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Rest a losing entry.</b> After this many losses in a row today from the same pattern or combination, it stops until tomorrow. The others keep trading.
+          </p>
+          <Segmented size="sm" className="w-full" value={String(s.comboStreak ?? 0)} onChange={(v) => save({ comboStreak: Number(v) })} options={[{ value: '0', label: 'Off' }, { value: '2', label: '2 in a row' }, { value: '3', label: '3 in a row' }]} />
+        </div>
+      </div>
       <p className="text-[11px] leading-snug text-muted">
         {s.movedText ? `${s.movedText}. ` : 'No limit on how far the market already moved. '}
         {s.chasePct > 0 ? `Skips a buy when the premium is over ${s.chasePct}% above its ${s.chaseMinutes ?? 15}-minute low. ` : ''}

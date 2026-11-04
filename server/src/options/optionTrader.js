@@ -12,6 +12,7 @@ import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
 import { chaseOf, chaseRise, chaseSkip } from './chase.js';
 import { movedOf, movedMeasures, movedSkip } from './moved.js';
+import { dayBiasOf, dayStand, dayBiasSkip, streakSkip } from './dayBias.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
@@ -22,6 +23,7 @@ const SCAN_MS = 15000;
 const COOLDOWN_AFTER_STOP_MIN = 20;
 const SAME_SIDE_COOLDOWN_MIN = 15;
 const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log at most this often
+export const PROBATION_TRADES = 10; // a combination is bought with 1 lot until it has this many closed live trades (switch: Options > Auto, "New combinations start small")
 const PATTERN_FRESH_MS = 4 * 60000; // a pattern is acted on only while the 5-minute bar that completed it closed under 4 minutes ago
 
 // The chart patterns the trader can buy on. The 30-day study (Options > Study) found these three made money on more than 12 trades each:
@@ -268,7 +270,10 @@ export class OptionTrader {
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
     const chart = this.#comboChart(read.index ?? DEFAULT_INDEX, bars);
-    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }).map((hit) => ({ ...hit, combo })));
+    // read the last few bars, as the study reads the whole chart, so a combination that fired 1 to 3 bars ago waits out its cooldown here too
+    // (live used to look at the newest bar alone and could buy a repeat signal the study never takes); only a signal on the newest bar is acted on
+    const newest = bars.length - 1;
+    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: Math.max(16, bars.length - 6), windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }).filter((h) => h.i === newest).map((hit) => ({ ...hit, combo, comboId: combo.id })));
     const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
     return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`, { minScore: settings.comboMinScore ?? 0 });
   }
@@ -285,7 +290,7 @@ export class OptionTrader {
     }
     const breadth = breadthSeries(bars, stocks5);
     const flow = turnoverSeries(bars, stocks5);
-    const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 8) });
+    const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 14) }); // patterns far enough back for the combination window of the bars read below
     this.comboCharts.set(index, { time: last, chart });
     return chart;
   }
@@ -305,7 +310,7 @@ export class OptionTrader {
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
       let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings, read.index));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.comboId ? { comboId: hit.comboId } : {}), atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
       if (minScore && !(sideScore >= minScore)) {
         result = await this.#skip(settings, side, `${label} ${hit.side}: the chart score ${sideScore == null ? 'is not known' : `is ${Math.round(sideScore)}`}, under the ${minScore} you asked for`);
         continue;
@@ -339,6 +344,24 @@ export class OptionTrader {
     const held = new RegExp(settings.mirror ? `^${index}-.*-${side.type}$` : `-${side.type}$`);
     if (await Position.findOne({ user: userId, segment: 'OPT', status: 'OPEN', symbol: held })) return stop(`already holding a ${side.type}`);
 
+    if (!manual && settings.comboStreak > 0 && side.trigger?.kind) {
+      // the losing-streak pause: this entry (pattern or combination) lost comboStreak times in a row today
+      const done = await AutoLog.find({ user: userId, segment: 'OPT', day: this.engine.marketStatus().istDate, decision: 'PLACED', status: 'CLOSED', setup: side.trigger.kind }, 'outcome decidedAt').sort({ decidedAt: 1 }).lean();
+      const why = streakSkip(done.map((l) => ({ net: l.outcome?.netPnl ?? 0 })), settings.comboStreak);
+      if (why) return stop(`${side.trigger.kind}: ${why}`);
+    }
+    const bias = manual ? null : dayBiasOf(settings);
+    if (bias && read.c1) {
+      const now = Math.floor(this.now().getTime() / 1000);
+      const why = dayBiasSkip(dayStand(read.c1, { now: now - (now % 60), price: read.spot }), bias, { side: side.type, index: INDEXES[index].short });
+      if (why) return stop(why);
+    }
+    let probationLots = null;
+    if (!manual && side.comboId && settings.probation !== false) {
+      // a new combination proves itself with 1 lot first: its study result is a handful of trades, live is the real test
+      const n = await AutoLog.countDocuments({ user: userId, segment: 'OPT', decision: 'PLACED', status: 'CLOSED', $or: [{ 'detail.comboId': side.comboId }, { setup: side.trigger?.kind }] });
+      if (n < PROBATION_TRADES) probationLots = 1;
+    }
     const moved = manual ? null : movedOf(settings);
     if (moved && read.c1) {
       // the "already moved" check: how far the index has run in this trade's direction before now
@@ -357,7 +380,7 @@ export class OptionTrader {
       if (why) return stop(why);
     }
     const funds = await getFunds(userId, this.config.startingBalance);
-    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT', { index }), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
+    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT', { index }), available: funds.available, spentBudget: today.spent, now: this.now(), lots: probationLots ?? lots });
     if (planned.skipped) return stop(planned.skipped);
     const plan = planned.plan;
 
@@ -397,7 +420,7 @@ export class OptionTrader {
       order: order._id,
       position: position?._id,
       card: { checks: side.checks, gates: side.gates },
-      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, firstStopSpot: plan.stopSpot, ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
+      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, firstStopSpot: plan.stopSpot, ...(side.comboId ? { comboId: side.comboId } : {}), ...(probationLots ? { probation: true } : {}), ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
     });
     return { order, plan };
   }

@@ -12,6 +12,7 @@ import { ComboResearch } from './ComboResearch.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 import { AddOnActions } from '../AddOnActions.jsx';
 import { InfoButton } from '../CheckInfo.jsx';
+import { TrustBadge } from '../TrustBadge.jsx';
 
 const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${formatPnl(p.net)}`;
 
@@ -133,7 +134,7 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
             {a.found.map((f) => (
               <li key={f.conds.join('+')} className="space-y-1 py-2 text-xs">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge></span>
+                  <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge> <TrustBadge trades={f.trades} winRate={f.winRate} net={f.net} /></span>
                   <span className="flex shrink-0 items-center gap-1">
                     <span className={`num text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
                     <InfoButton keys={f.conds.filter((k) => !a.conds.includes(k))} title={[].concat(f.added).join(' + ')} />

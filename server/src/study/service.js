@@ -1,3 +1,4 @@
+import { dayBiasOf } from '../options/dayBias.js';
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from './patterns.js';
@@ -125,6 +126,8 @@ export class StudyService {
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
+      withDay: dayBiasOf(settings),
+      comboStreak: settings?.comboStreak ?? 0,
       moved: movedOf(settings),
       autoFind,
       pairFind,
@@ -221,6 +224,8 @@ export class StudyService {
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
+      withDay: dayBiasOf(settings),
+      comboStreak: settings?.comboStreak ?? 0,
       moved: movedOf(settings),
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,

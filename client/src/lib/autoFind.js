@@ -81,3 +81,4 @@ export function autoFindText(af) {
   for (const f of af.found) lines.push(`${f.labels.join(' + ')}: ${f.trades} trades, ${f.winRate ?? '-'}% win, ${formatPnl(f.net)}; older ${part(f.train)}; newer ${part(f.test)}`);
   return lines.join('\n');
 }
+

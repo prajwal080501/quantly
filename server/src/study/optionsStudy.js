@@ -13,6 +13,7 @@ import { findPairs, findCombos, pairStart } from './pairFinder.js';
 import { runLadderTest, MIN_SPLIT_DAYS } from './ladderTest.js';
 import { runMovedTest } from './movedTest.js';
 import { movedMeasures, movedSkip, istMinutes } from '../options/moved.js';
+import { dayStand, dayBiasSkip, streakSkip } from '../options/dayBias.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -306,6 +307,22 @@ export function tradesFor(signals, { c1, byTime, params }) {
     // live buys a little after the 5-minute bar closes (the broker's candles refresh every 30 seconds and it looks every 15): one minute later here
     const at = live && byTime.has(s.time + LIVE_DELAY_SEC) ? s.time + LIVE_DELAY_SEC : s.time;
     const entry = byTime.get(at) != null ? c1[byTime.get(at)].open : s.close;
+    if (params.comboStreak > 0) {
+      // the losing-streak pause, as live: an entry (pattern or combination) that lost this many times in a row today rests until tomorrow
+      const mine = trades.filter((t) => t.technique === s.technique && dayKey(t.entryTime) === day && t.exitTime <= at);
+      if (streakSkip(mine, params.comboStreak)) {
+        skips.streak = (skips.streak || 0) + 1;
+        continue;
+      }
+    }
+    if (params.withDay) {
+      // the "with the day" check, as live: calls only above today's open and average, puts only below both
+      const i = byTime.get(at) ?? c1.length;
+      if (dayBiasSkip(dayStand(c1.slice(Math.max(0, i - 400), i), { now: at, price: entry }), params.withDay, { side: s.side })) {
+        skips.withDay = (skips.withDay || 0) + 1;
+        continue;
+      }
+    }
     const { stop, wide } = fitStop(s, entry, params.stopRule);
     if (wide) {
       skippedWide += 1;

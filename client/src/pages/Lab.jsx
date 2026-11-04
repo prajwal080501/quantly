@@ -12,6 +12,7 @@ import { LabChart } from '../components/LabChart.jsx';
 import { TradeChart } from '../components/TradeChart.jsx';
 import { AddOnActions } from '../components/AddOnActions.jsx';
 import { InfoButton } from '../components/CheckInfo.jsx';
+import { TrustBadge } from '../components/TrustBadge.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -375,6 +376,8 @@ export default function Lab({ embedded = false }) {
             <Summary s={r.stats} title={r.withAdd ? 'Now' : 'Result'} tone="" />
             {r.withAdd && <Summary s={r.withAdd} title={`With ${r.withAdd.labels.join(' + ')}`} tone="text-accent" />}
             <Equity base={r.stats} withAdd={r.withAdd} />
+            <TrustBadge trades={r.stats.trades} winRate={r.stats.winRate} net={r.stats.net} long />
+            <p className="text-[11px] text-muted">The Lab now replays your live rules (one call and one put at a time, pauses after a loss, your trades a day, and the anti-chase, already-moved and with-the-day checks), so its history is what live would really have done.</p>
             {r.stats.trades < 15 && <p className="text-[11px] text-warn">Only {r.stats.trades} entries: too few to trust. Use a longer period.</p>}
           </Card>
 
