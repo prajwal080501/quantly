@@ -297,11 +297,18 @@ export default function Lab({ embedded = false }) {
   const [add, setAdd] = useState([]);
   const [days, setDays] = useState('15');
   const [prices, setPrices] = useState('mixed');
+  // the no-stop test: typed numbers are only used once Run is tapped, so each keystroke does not re-run the Lab
+  const [noStopOn, setNoStopOn] = useState(false);
+  const [lockAt, setLockAt] = useState('5000');
+  const [lockKeep, setLockKeep] = useState('4000');
+  const [noStop, setNoStop] = useState(null);
+  const noStopBad = noStopOn && Number(lockAt) > 0 && !(Number(lockKeep) >= 0 && Number(lockKeep) < Number(lockAt));
+  const applyNoStop = () => { setNoStop(noStopOn ? { at: Number(lockAt) || 0, keep: Number(lockKeep) || 0 } : null); setSelected(null); };
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
   const choices = useApi('/lab', []);
   const own = useApi('/options', []);
-  const run = useApi(base ? labPath({ base, add, days, prices }) : null, [base, add.join(','), days, prices]);
+  const run = useApi(base ? labPath({ base, add, days, prices, noStop }) : null, [base, add.join(','), days, prices, noStop?.at, noStop?.keep, Boolean(noStop)]);
   const r = run.data?.result;
   const saved = own.data?.settings?.combos;
   const pick = (value) => { setBase(value); setAdd([]); setSelected(null); try { localStorage.setItem(STORE, value); } catch { /* not remembered */ } };
@@ -361,6 +368,31 @@ export default function Lab({ embedded = false }) {
           <Segmented className="w-full" size="sm" value={prices} onChange={setPrices} options={LAB_PRICES} />
           <p className="text-[11px] text-muted">Real prices come from the premiums saved each evening (Research &gt; Saved data). Days without them use the model's estimate, marked * in the table.</p>
         </Fold>
+        <Fold plain id="lab-nostop" title="No stop loss (risky test)" summary={noStop ? `On · lock ₹${noStop.keep} at +₹${noStop.at}` : 'Off'}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs">Trade with no stop loss</span>
+            <button type="button" role="switch" aria-checked={noStopOn} aria-label="No stop loss test" onClick={() => setNoStopOn((v) => !v)} className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${noStopOn ? 'bg-down' : 'bg-surface-3'}`}>
+              <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${noStopOn ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+          {noStopOn && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[11px] text-muted">
+                  When profit reaches ₹
+                  <input className="field num mt-1 !py-2" inputMode="numeric" value={lockAt} onChange={(e) => setLockAt(e.target.value)} />
+                </label>
+                <label className="text-[11px] text-muted">
+                  Lock in ₹
+                  <input className="field num mt-1 !py-2" inputMode="numeric" value={lockKeep} onChange={(e) => setLockKeep(e.target.value)} />
+                </label>
+              </div>
+              <p className="text-[11px] leading-snug text-down">Risky. No stop, no trailing stop, no break-even: a trade is only sold by this lock, by the emergency floor once it has lost half the premium paid, or at the closing time. Leave the lock at 0 for no lock at all.</p>
+            </>
+          )}
+          {noStopBad && <p className="text-[11px] text-down">The profit you lock in must be less than the profit that starts the lock.</p>}
+          <button type="button" className="btn btn-sm w-full" disabled={noStopBad} onClick={applyNoStop}>{noStopOn ? 'Run with no stop loss' : noStop ? 'Back to my normal stop' : 'Run'}</button>
+        </Fold>
       </Card>
 
       {!base && <EmptyState icon={FlaskConical} title="Pick a combination">Choose one of yours (or a pattern) above to see its entries over the last weeks.</EmptyState>}
@@ -373,7 +405,17 @@ export default function Lab({ embedded = false }) {
               <p className="min-w-0 flex-1 text-[11px] leading-snug text-muted"><b className="text-fg">{r.base.name}</b>: {r.base.text}. {r.period.from} to {r.period.to} ({r.period.days} trading days). {r.pricing.real} entr{r.pricing.real === 1 ? 'y' : 'ies'} priced from real saved premiums, {r.pricing.estimated} estimated.</p>
               <InfoButton keys={comboBase ? r.base.conds : [`p_${base.slice(8)}`]} title={r.base.name} rule={comboBase ? r.base.text : null} />
             </div>
-            <Summary s={r.stats} title={r.withAdd ? 'Now' : 'Result'} tone="" />
+            {r.noStop && (
+              <div className="space-y-1 rounded-lg border border-down bg-down-soft p-2.5 text-[11px] leading-snug">
+                <p className="font-bold text-down">No-stop test (risky): no stop loss, {r.noStop.at > 0 ? `lock ₹${r.noStop.keep} once the profit reaches ₹${r.noStop.at}` : 'no profit lock'}.</p>
+                <p>
+                  {r.noStop.floorHits} entr{r.noStop.floorHits === 1 ? 'y' : 'ies'} fell to the emergency floor (half the premium lost). Worst single entry <b className="num text-down">{r.noStop.worstTrade == null ? '–' : formatPnl(r.noStop.worstTrade)}</b>.
+                  {r.normal && <> The same entries with your normal stop: <b className={`num ${pnlClass(r.normal.net)}`}>{formatPnl(r.normal.net)}</b> ({r.normal.winRate ?? '–'}% won, worst dip {formatPnl(-r.normal.maxDrawdown)}).</>}
+                </p>
+                <p className="text-muted">A good no-stop result usually comes from a few strong trend days. On a day that turns against you, one trade can lose far more than your loss limit.</p>
+              </div>
+            )}
+            <Summary s={r.stats} title={r.noStop ? (r.withAdd ? 'Now, no stop' : 'Result with no stop loss') : r.withAdd ? 'Now' : 'Result'} tone={r.noStop ? 'text-down' : ''} />
             {r.withAdd && <Summary s={r.withAdd} title={`With ${r.withAdd.labels.join(' + ')}`} tone="text-accent" />}
             <Equity base={r.stats} withAdd={r.withAdd} />
             <TrustBadge trades={r.stats.trades} winRate={r.stats.winRate} net={r.stats.net} long />

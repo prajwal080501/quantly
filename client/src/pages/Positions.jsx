@@ -45,6 +45,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
             <span className="font-semibold">{p.symbol}</span>
             <Badge tone={p.netQty > 0 ? 'up' : 'down'}>{p.netQty > 0 ? 'Long' : 'Short'}</Badge>
             <Badge>MIS</Badge>
+            {p.stopOff && <Badge tone="down">No stop loss</Badge>}
           </div>
           <div className="num mt-1 text-xs text-muted">
             Qty {Math.abs(p.netQty)} · Avg {formatPrice(p.avgPrice)} · LTP{' '}
@@ -59,7 +60,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
         </div>
       </div>
       <div className="num mt-2 text-[11px] text-muted">
-        SL {p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'} · Target {p.target != null ? formatPrice(p.target) : 'none'}
+        {p.stopOff ? <span className="font-semibold text-down">SL OFF · floor {formatPrice(p.floor)}{p.stopLoss != null && p.stopLoss !== p.floor ? ` · lock ${formatPrice(p.stopLoss)}` : ''}</span> : `SL ${p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'}`} · Target {p.target != null ? formatPrice(p.target) : 'none'}
         {p.trailPct ? ` · trailing ${p.trailPct}%` : ''}
         {p.lockSteps?.length ? ` · lock ₹${Math.round(p.lockSteps[0].keep)} at ₹${Math.round(p.lockSteps[0].at)}, ${p.lockSteps.length} rungs` : p.lockTrigger ? ` · lock ₹${p.lockAmount} at ₹${p.lockTrigger}` : ''}
       </div>

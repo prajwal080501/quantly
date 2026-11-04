@@ -24,6 +24,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-semibold">{p.label}</span>
             <Badge tone={p.option?.type === 'CE' ? 'up' : 'down'}>{p.option?.type === 'CE' ? 'Call' : 'Put'}</Badge>
+            {p.stopOff && <Badge tone="down">No stop loss</Badge>}
           </div>
           <div className="num mt-1 text-xs text-muted">
             {lotsOf(p.netQty)} lot · Qty {Math.abs(p.netQty)} · Buy {formatPrice(p.avgPrice)} · LTP{' '}
@@ -38,7 +39,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
         </div>
       </div>
       <div className="num mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted">
-        <span>Stop {p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'}</span>
+        <span className={p.stopOff ? 'font-semibold text-down' : ''}>{p.stopOff ? `Stop OFF · floor ${formatPrice(p.floor)}${p.stopLoss != null && p.stopLoss !== p.floor ? ` · lock ${formatPrice(p.stopLoss)}` : ''}` : `Stop ${p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'}`}</span>
         <span>
           {p.lockSteps?.length ? `Lock ladder: ${p.lockSteps.length} rows, from +₹${Math.round(p.lockSteps[0].at)} keeps ₹${Math.round(p.lockSteps[0].keep)}` : p.lockTrigger ? `Lock: from +₹${Math.round(p.lockTrigger)} keeps ₹${Math.round(p.lockAmount)} and follows` : 'No profit lock'}
           {p.trailPct ? ` · trail ${p.trailPct}%` : ''}
@@ -46,7 +47,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
       </div>
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" onClick={() => onEdit(p)} className="btn btn-secondary btn-sm">
-          Stop / Trail
+          Stop / Lock
         </button>
         <button type="button" disabled={busy} onClick={() => onExit(p.symbol)} className="btn btn-secondary btn-sm">
           Exit

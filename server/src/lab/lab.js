@@ -150,7 +150,7 @@ export function analyzeLab({ nifty1, stocks5 = null, params, base, from = null, 
     });
   }
   rows.sort((a, b) => b.gain - a.gain);
-  return { kind, conds, chart, params, traded, baseRun, baseSignal, baseKeys, baseNet, rows, complete, bars5, studyDays, fromTime, midTime, base, name, text };
+  return { kind, conds, chart, params, byTime, traded, baseRun, baseSignal, baseKeys, baseNet, rows, complete, bars5, studyDays, fromTime, midTime, base, name, text };
 }
 
 /** The part that depends on the picked checks: which entries they skip, the new result, the day list. Cheap, so a tap on a check does not redo the ranking. */
@@ -196,6 +196,7 @@ export function presentLab(ctx, add = []) {
       best: t.best,
       worst: t.worst,
       priced: t.priced,
+      noStop: Boolean(t.noStop),
       note: s?.note,
       why: s && kind === 'combo' ? heldAt(s, d) : [],
       fixes,
@@ -224,12 +225,17 @@ export function presentLab(ctx, add = []) {
   const lastDay = dayKey(complete.at(-1).time);
   const candles = bars5.filter((b) => DAY(b.time) >= first - WARM_DAYS - 2).map(({ time, open, high, low, close }) => ({ time, open, high, low, close }));
   const priced = baseRun.trades.filter((t) => t.priced === 'real').length;
+  // the no-stop test is shown beside the same entries with your normal stop, so the extra risk and reward are side by side
+  const normal = params.noStop ? breakdown(tradesFor(baseRun.signals, { c1: complete, byTime: ctx.byTime, params: { ...params, noStop: null } }).trades, midTime) : null;
+  const noStop = params.noStop ? { at: params.noStop.at, keep: params.noStop.keep, floorHits: baseRun.trades.filter((t) => t.reason === 'FLOOR').length, worstTrade: baseRun.trades.length ? Math.min(...baseRun.trades.map((t) => t.net)) : null } : null;
   return {
     period: { from: dayKey(fromTime), to: lastDay, days: studyDays.length },
     base: { key: base, name, conds, labels: conds.map((k) => CONDITION_BY_KEY.get(k)?.label ?? k), text, signals: baseRun.signals.length },
     add: cleanAdd,
     pricing: { real: priced, estimated: baseRun.trades.length - priced },
     stats: breakdown(baseRun.trades, midTime),
+    noStop,
+    normal,
     withAdd: sel ? { labels: cleanAdd.map((k) => CONDITION_BY_KEY.get(k).label), ...breakdown(sel.trades, midTime) } : null,
     entries,
     dayList,

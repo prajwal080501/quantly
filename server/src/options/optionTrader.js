@@ -70,6 +70,12 @@ export class OptionTrader {
     this.comboCharts = new Map(); // index key -> { time, chart }
     this.onTick = (t) => this.#onTick(t);
     this.onUpdate = (u) => {
+      if (u.kind === 'stopoff') {
+        // the per-position stop switch: with it off, the chart stop, trailing stop and break-even leave this trade alone
+        const w = this.open.get(`${u.userId}|${u.symbol}`);
+        if (w) w.stopOff = Boolean(u.stopOff);
+        return;
+      }
       if (u.kind === 'fill' && u.order && isOptionSymbol(u.order.symbol) && u.order.role !== 'ENTRY') this.#finish(u).catch((e) => logger.warn(`options log update failed: ${e.message}`));
     };
   }
@@ -92,6 +98,7 @@ export class OptionTrader {
         bestSpot: log.detail?.bestSpot ?? log.detail?.entrySpot ?? null,
         bestR: log.detail?.bestR ?? 0,
         worstR: log.detail?.worstR ?? 0,
+        stopOff: Boolean(log.position && (await Position.findById(log.position, 'stopOff').lean())?.stopOff),
       });
       await this.market.watchOption(log.symbol, log.detail?.contract ?? null).catch(() => {});
     }
@@ -500,7 +507,7 @@ export class OptionTrader {
    */
   #trail(index, ltp) {
     for (const w of this.open.values()) {
-      if (w.index !== index) continue;
+      if (w.index !== index || w.stopOff) continue;
       if ((!w.trail && !(w.breakEven > 0)) || w.entrySpot == null || w.stopSpot == null) continue;
       const long = w.type === 'CE';
       w.bestSpot = long ? Math.max(w.bestSpot ?? ltp, ltp) : Math.min(w.bestSpot ?? ltp, ltp);
@@ -534,6 +541,7 @@ export class OptionTrader {
       const close = bar.last;
       for (const w of this.open.values()) {
         if (w.index !== index) continue;
+        if (w.stopOff) continue; // stop switched off by hand: only the floor and profit lock in the order engine can sell it
         if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, w.stopWhy ?? 'STOP').catch(() => {});
         else if (w.moved) {
           // the trailed level is written to the log once a minute, so a restart keeps it
@@ -571,7 +579,7 @@ export class OptionTrader {
     const why = this.reasons.get(key);
     this.reasons.delete(key);
     const gross = pos.realizedPnl;
-    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : why || 'MANUAL';
+    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : pos.stopOff ? 'FLOOR' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : why || 'MANUAL';
     const risk = Math.abs((log.fillPrice ?? log.entry) - log.stopLoss);
     const exitPrice = order.avgFillPrice;
     const outcome = {

@@ -99,9 +99,10 @@ export class LabService {
   /**
    * @param prices 'mixed' (real premiums on the days they were saved, the model's estimate on the others), 'real' (only the saved days) or 'estimated'
    */
-  async run(userId, { base, add = [], from = null, to = null, days = 22, index = 'NIFTY', prices = 'mixed' }) {
+  async run(userId, { base, add = [], from = null, to = null, days = 22, index = 'NIFTY', prices = 'mixed', noStop = null }) {
     const calendar = (from ? Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 : Math.ceil((days * 7) / 5)) + WARMUP_DAYS;
     const [{ nifty1, stocks5 }, { params }] = await Promise.all([this.#data(index, calendar), this.#params(userId, index)]);
+    if (noStop) params.noStop = noStop;
     let mode = 'estimated';
     if (prices !== 'estimated') {
       const book = await this.#book(index);

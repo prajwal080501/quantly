@@ -15,7 +15,11 @@ const query = z.object({
   days: z.coerce.number().int().min(3).max(MAX_DAYS).default(22),
   index: z.enum(INDEX_KEYS).default('NIFTY'),
   prices: z.enum(['mixed', 'real', 'estimated']).default('mixed'),
-});
+  // the no-stop test: no stop loss, only a fixed profit lock (lock lockKeep once the profit reaches lockAt) and the emergency floor
+  noStop: z.enum(['0', '1']).optional(),
+  lockAt: z.coerce.number().min(0).max(10_000_000).optional(),
+  lockKeep: z.coerce.number().min(0).max(10_000_000).optional(),
+}).refine((q) => !(q.lockAt > 0) || (q.lockKeep ?? 0) < q.lockAt, { message: 'The profit you keep must be less than the profit that starts the lock', path: ['lockKeep'] });
 
 export function labRoutes({ lab }) {
   const router = Router();
@@ -25,7 +29,7 @@ export function labRoutes({ lab }) {
     const choices = await lab.choices(req.userId, q.index);
     if (!q.base) return res.json({ choices, note: LAB_NOTE });
     const add = (q.add ?? '').split(',').map((k) => k.trim()).filter(Boolean).slice(0, MAX_ADD);
-    res.json({ choices, note: LAB_NOTE, result: await lab.run(req.userId, { base: q.base, add, from: q.from, to: q.to, days: q.days, index: q.index, prices: q.prices }) });
+    res.json({ choices, note: LAB_NOTE, result: await lab.run(req.userId, { base: q.base, add, from: q.from, to: q.to, days: q.days, index: q.index, prices: q.prices, noStop: q.noStop === '1' ? { at: q.lockAt ?? 0, keep: q.lockKeep ?? 0 } : null }) });
   });
 
   return router;

@@ -5,6 +5,7 @@ import { MAX_STEPS, ladderProblem, rulesFor } from '../models/TradeDefaults.js';
 import { validate } from '../middleware/validate.js';
 import { addFunds, getFunds } from '../services/walletService.js';
 import { getDashboard } from '../services/analytics.js';
+import { stopOffFloor } from '../services/orderEngine.js';
 import { parseOptionSymbol, optionLabel } from '../options/symbols.js';
 
 const price = z.coerce.number().positive().optional();
@@ -102,6 +103,7 @@ export function tradingRoutes({ engine, market, config }) {
         ltp: market.getLtp(p.symbol),
         stopLoss: legs.find((l) => l.symbol === p.symbol && l.role === 'STOPLOSS')?.triggerPrice ?? null,
         target: legs.find((l) => l.symbol === p.symbol && l.role === 'TARGET')?.price ?? null,
+        floor: p.status === 'OPEN' && p.stopOff ? stopOffFloor(p) : null,
       })),
     });
   });
@@ -140,6 +142,11 @@ export function tradingRoutes({ engine, market, config }) {
     }
     const doc = await TradeDefaults.findOneAndUpdate({ user: req.userId }, { $set: next, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true });
     res.json(defaultsView(doc));
+  });
+
+  // The per-position stop switch: off leaves only the emergency floor (half the money in it) and the profit lock.
+  router.put('/positions/:symbol/stop', validate(z.object({ off: z.boolean() })), async (req, res) => {
+    res.json(await engine.setStopOff(req.userId, req.params.symbol.toUpperCase(), req.body.off));
   });
 
   router.get('/positions/:symbol/exits', async (req, res) => {

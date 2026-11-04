@@ -98,3 +98,25 @@ test('the protect pick moves the stop to break-even by +1,500 and says what it s
   assert.match(p.text, /saved 2 trades/);
   assert.match(p.text, /cut 1 big winner short/);
 });
+
+test('the no-stop test: the chart stop and trail are ignored, a profit lock still sells, and the emergency floor sells at half the premium', () => {
+  const falling = (step) => Array.from({ length: 31 }, (_, i) => ({ time: BASE + i * 60, open: 23000 - i * step, high: 23000.5 - i * step, low: 22999 - (i + 1) * step, close: 22999.5 - (i + 1) * step + 0.5, volume: 1000 }));
+  const signal = { side: 'CE', time: BASE + 60, stop: 22990, technique: 'test' };
+  const params = { steps: [], lotSize: 65, holidays: [], trail: { points: 5, start: 1 }, breakEven: 5 };
+  const slow = falling(5);
+  const slowBy = new Map(slow.map((b, i) => [b.time, i]));
+  assert.equal(simulateTrade({ c1: slow, byTime: slowBy, signal, params }).reason, 'STOP', 'with the stop, the chart stop sells');
+  const off = simulateTrade({ c1: slow, byTime: slowBy, signal, params: { ...params, noStop: { at: 0, keep: 0 } } });
+  assert.notEqual(off.reason, 'STOP');
+  assert.equal(off.noStop, true);
+  const crash = falling(60);
+  const crashBy = new Map(crash.map((b, i) => [b.time, i]));
+  const floored = simulateTrade({ c1: crash, byTime: crashBy, signal, params: { ...params, noStop: { at: 0, keep: 0 } } });
+  assert.equal(floored.reason, 'FLOOR');
+  assert.ok(Math.abs(floored.gross + 0.5 * floored.entryPremium * 65) < 1, `half the premium lost, got ${floored.gross}`);
+  // a rising market: the fixed lock sells once the profit falls back to what it keeps
+  const up = bars.map((b, i) => (i < 15 ? b : { ...b, open: 23014 - (i - 15) * 8, high: 23015 - (i - 15) * 8, low: 23006 - (i - 15) * 8, close: 23007 - (i - 15) * 8 }));
+  const upBy = new Map(up.map((b, i) => [b.time, i]));
+  const locked = simulateTrade({ c1: up, byTime: upBy, signal: { ...signal, stop: 23020 }, params: { ...params, noStop: { at: 200, keep: 100 } } });
+  assert.equal(locked.reason, 'LOCK', 'the stop at 23020 is above the price but ignored; the lock sells');
+});

@@ -15,9 +15,17 @@ export const LAB_PRICES = [
 ];
 
 /** The request for the lab: the start, up to three added checks, how many days and which premiums. */
-export function labPath({ base, add = [], days = 22, prices = 'mixed' }) {
+export function labPath({ base, add = [], days = 22, prices = 'mixed', noStop = null }) {
   const q = new URLSearchParams({ base, days: String(days), prices });
   if (add.length) q.set('add', add.join(','));
+  if (noStop) {
+    // the no-stop test: no stop loss, only a fixed profit lock (and the emergency floor at half the premium)
+    q.set('noStop', '1');
+    if (Number(noStop.at) > 0) {
+      q.set('lockAt', String(Number(noStop.at)));
+      q.set('lockKeep', String(Number(noStop.keep) || 0));
+    }
+  }
   return `/lab?${q}`;
 }
 
@@ -30,7 +38,7 @@ export function whenText(sec) {
   return d.replace(',', '');
 }
 
-export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even', TARGET: 'Target', EOD: 'Closing time', HARD: 'Hard stop' };
+export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even', TARGET: 'Target', EOD: 'Closing time', HARD: 'Hard stop', FLOOR: 'Emergency floor' };
 export const exitWord = (r) => EXIT_WORD[r] ?? r;
 
 /** One line on what a check would have done to the entries: "skips 3 (2 losers ₹-4,100, 1 winner ₹900), adds 0". */
@@ -92,7 +100,8 @@ export function entryStory(e) {
   const held = (e.why || []).filter((w) => w.held).map((w) => w.label);
   const why = held.length ? `${held.join(' and ')} ${held.length > 1 ? 'all held' : 'held'} on the 5-minute bar that had just closed` : e.note ? `the pattern "${e.note}" formed on the 5-minute bar that had just closed` : 'the entry rule fired on the bar that had just closed';
   const gap = Math.abs(e.entrySpot - e.stop);
-  return `At ${clock(e.entryTime)} ${why}, so it bought ${e.lots} lot${e.lots > 1 ? 's' : ''} of the ${e.strike} ${call ? 'call' : 'put'} at ${rs(e.entryPremium)} (${e.priced === 'real' ? 'real saved price' : 'estimated price'}) with the index at ${px(e.entrySpot)}. The stop sat on the index at ${px(e.stop)}, ${Math.round(gap)} points ${call ? 'below' : 'above'} the entry.`;
+  const stop = e.noStop ? 'There was no stop loss (the no-stop test): only the profit lock, the emergency floor at half the premium, and the closing time could sell it.' : `The stop sat on the index at ${px(e.stop)}, ${Math.round(gap)} points ${call ? 'below' : 'above'} the entry.`;
+  return `At ${clock(e.entryTime)} ${why}, so it bought ${e.lots} lot${e.lots > 1 ? 's' : ''} of the ${e.strike} ${call ? 'call' : 'put'} at ${rs(e.entryPremium)} (${e.priced === 'real' ? 'real saved price' : 'estimated price'}) with the index at ${px(e.entrySpot)}. ${stop}`;
 }
 
 /** How the entry ended, in plain words, with the numbers. */
@@ -105,6 +114,7 @@ export function exitStory(e) {
     TRAIL: `The trailing stop follows the best price. At ${at} the index fell back to it and the option was sold at about ${sold}.`,
     LOCK: `The profit ladder raised its lock level as the profit grew. At ${at} the price fell back to that level and the option was sold at about ${sold}.`,
     HARD: `At ${at} the option fell faster than the index stop could act, so the hard stop sold it at about ${sold}.`,
+    FLOOR: `With no stop loss, the option kept falling until at ${at} it had lost half the money paid for it, so the emergency floor sold it at about ${sold}.`,
     TARGET: `At ${at} the profit target was reached and the option was sold at about ${sold}.`,
     EOD: `It was still open at the closing time, so at ${at} the option was sold at about ${sold}.`,
   }[e.reason] ?? `Sold at ${at} (${e.reason}) at about ${sold}.`;
