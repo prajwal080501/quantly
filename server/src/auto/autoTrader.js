@@ -118,7 +118,7 @@ export class AutoTrader {
             for (const idea of shareIdeas(chart, combo, { symbol, from: bars.length - 1, exitMin: this.config.enforceMarketHours ? exits.get(uid) : 24 * 60 })) {
               if (idea.i !== bars.length - 1) continue;
               made += 1;
-              const r = await this.consider(s, { ...idea, _id: `combo:${symbol}:${combo.id}:${last.time}`, riskReward: 1.5 });
+              const r = await this.consider(s, { ...idea, _id: `combo:${symbol}:${combo.id}:${last.time}`, riskReward: 1.5, comboSnap: { id: combo.id, name: combo.name, conds: combo.conds, need: combo.need, window: combo.window } });
               if (r.skipped) logger.info(`auto skip ${symbol} ${idea.side} (${combo.name}) for ${s.user}: ${r.skipped}`);
             }
           }
@@ -158,6 +158,8 @@ export class AutoTrader {
         target2: idea.target2,
         riskReward: idea.riskReward,
         card: idea.card,
+        // a combination's trade keeps the combination as it was, so the trade view can read its checks again even after it is edited
+        ...(idea.comboSnap ? { detail: { comboId: idea.comboSnap.id, combo: idea.comboSnap } } : {}),
         ...extra,
       });
     } catch (e) {

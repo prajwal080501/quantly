@@ -562,3 +562,21 @@ Long screens are split into sections with a header that says what is inside, so 
 **Research tab.** The bottom bar now has Research (in place of Scanner, which opens from the Stocks home tiles). It holds Day review (the old Review page, `/review` redirects there), Options and Shares studies, Finder, Data and the day Report, so nothing needs a trip to Account. Account keeps settings only (limits, entries, wallet). No logic changed.
 
 **Improve a combination: stop and profit.** Review > Improve a combination also has a folded "Stop loss and profit ladder" list. With your combination (and any picked checks) it re-trades the same day's entries with about 11 stop distances, the profit ladders (start and room behind), trailing stops and break-even, one change at a time, and shows each result against what Account > Limits sets now (`improve.tries` on `GET /api/review/patterns`). Read-only: it never changes live settings.
+
+## Trade replay: any trade, minute by minute
+
+Tap a closed trade in Options > History, Options > Positions (closed today), Options > Log ("Play back minute by minute") or
+Positions (closed today and earlier share trades). The popup (`GET /api/replay/:positionId`, `server/src/replay/`) shows:
+
+- the P&L of every minute from entry to exit, the change from the minute before, and the stop at that minute;
+- a chart of the minute candles with the stop as it moved and one P&L bar per minute (options can switch to the index chart);
+- the moments that decided it: first profit, best and worst points, the turn back into loss, each stop move (ladder row, break-even, trail);
+- plain sentences on why the loss was that size: the give-back from the best point, a profit lock that starts above the best point,
+  a fill beyond the stop compared with the planned risk, the lot size and the charges;
+- why it was taken: the combination or pattern, each of its checks at the entry bar (held or not), chart readings there, and whether the
+  study sees the same signal on that bar (live vs study);
+- the plan against what happened.
+
+Prices come from the saved option candles (30 days) or the share's saved minutes (3 months); for today's options the broker's candles;
+with neither, the option premium is estimated from the index at the volatility of the real entry price, and the popup says so. Stops are
+rebuilt from 1-minute candles, so a move can differ by seconds from the live engine. New trades keep the combination as it was at entry.

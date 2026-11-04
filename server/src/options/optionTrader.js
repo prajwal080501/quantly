@@ -268,7 +268,7 @@ export class OptionTrader {
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
     const chart = this.#comboChart(read.index ?? DEFAULT_INDEX, bars);
-    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }));
+    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }).map((hit) => ({ ...hit, combo })));
     const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
     return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`, { minScore: settings.comboMinScore ?? 0 });
   }
@@ -305,7 +305,7 @@ export class OptionTrader {
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
       let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings, read.index));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}) };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
       if (minScore && !(sideScore >= minScore)) {
         result = await this.#skip(settings, side, `${label} ${hit.side}: the chart score ${sideScore == null ? 'is not known' : `is ${Math.round(sideScore)}`}, under the ${minScore} you asked for`);
         continue;
@@ -397,7 +397,7 @@ export class OptionTrader {
       order: order._id,
       position: position?._id,
       card: { checks: side.checks, gates: side.gates },
-      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
+      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, firstStopSpot: plan.stopSpot, ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
     });
     return { order, plan };
   }
