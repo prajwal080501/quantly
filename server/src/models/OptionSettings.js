@@ -43,6 +43,9 @@ const optionSettingsSchema = new mongoose.Schema(
     chaseMinutes: { type: Number, default: 15, min: 5, max: 60 },
     movedCheck: { type: String, enum: ['off', ...MOVED_KEYS], default: 'off' }, // the "already moved" check on the index (options/moved.js): which measure...
     movedLimit: { type: Number, default: 0, min: 0, max: 100 }, // ...and the most it may show in the trade's direction (0 = off)
+    withDay: { type: Boolean, default: false }, // the "with the day" check (options/dayBias.js): calls only above today's open and average, puts only below both
+    comboStreak: { type: Number, default: 0, min: 0, max: 5 }, // 0 = off; otherwise an entry (pattern or combination) that lost this many times in a row today rests until tomorrow
+    probation: { type: Boolean, default: true }, // a combination with fewer than PROBATION_TRADES closed live trades is bought with 1 lot only
     pausedOn: { type: String, default: null }, // 'YYYY-MM-DD' (IST): no new automatic buy on that day; open trades are still managed
     comboMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a combination is bought only while the chart score of its side is at least this
     patternMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a pattern is bought only while the chart score of its side is at least this (the study's "Patterns, score 70+")

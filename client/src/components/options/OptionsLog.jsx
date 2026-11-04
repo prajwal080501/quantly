@@ -6,6 +6,7 @@ import { formatPrice, formatPnl, formatTime, pnlClass } from '../../lib/format.j
 import { EXIT_LABEL } from '../../lib/options.js';
 import { DataTable, Stack } from '../DataTable.jsx';
 import { Badge, Card, Skeleton } from '../ui.jsx';
+import { TradeReplay } from '../TradeReplay.jsx';
 
 const shiftDay = (day, by) => {
   const [y, m, d] = day.split('-').map(Number);
@@ -14,6 +15,7 @@ const shiftDay = (day, by) => {
 
 function Detail({ e }) {
   const d = e.detail || {};
+  const [replay, setReplay] = useState(false);
   return (
     <Card className="space-y-2 p-3 text-xs">
       <div className="flex items-center justify-between gap-2">
@@ -21,6 +23,12 @@ function Detail({ e }) {
         <Badge tone={e.decision === 'PLACED' ? 'up' : 'muted'}>{e.decision === 'PLACED' ? (e.status === 'OPEN' ? 'Open' : 'Closed') : 'Skipped'}</Badge>
       </div>
       {e.reason && <p className="text-muted">Skipped: {e.reason}</p>}
+      {e.position && (
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setReplay(true)}>
+          Replay minute by minute
+        </button>
+      )}
+      {replay && <TradeReplay id={e.position} onClose={() => setReplay(false)} />}
       {e.decision === 'PLACED' && (
         <p className="num text-muted">
           {d.lots} lot · bought ₹{formatPrice(e.fillPrice)} · hard stop ₹{formatPrice(e.stopLoss)} · risk ₹{formatPrice(d.maxLoss)} · IV {d.iv}%

@@ -7,6 +7,7 @@ import { MAX_COMBOS } from '../../lib/autoFind.js';
 import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, roomSteps, stopWord, indexWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
+import { InfoButton } from '../InfoButton.jsx';
 
 const KIND_WORD = { state: 'Now', event: 'Event' };
 
@@ -197,8 +198,8 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
               {g.items.map((c) => {
                 const on = combo.conds.includes(c.key);
                 return (
-                  <li key={c.key}>
-                    <button type="button" aria-pressed={on} onClick={() => setCombo((x) => toggleCheck(x, c.key))} className={`flex w-full items-start gap-2 px-3 py-2 text-left ${on ? 'bg-accent2-soft' : ''}`}>
+                  <li key={c.key} className={`flex items-start ${on ? 'bg-accent2-soft' : ''}`}>
+                    <button type="button" aria-pressed={on} onClick={() => setCombo((x) => toggleCheck(x, c.key))} className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left">
                       <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${on ? 'border-accent bg-accent text-on-accent' : 'border-line'}`}>{on && <Check className="h-3 w-3" />}</span>
                       <span className="min-w-0">
                         <span className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
@@ -209,6 +210,7 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
                         <span className="block text-[11px] leading-snug text-muted">{c.text}</span>
                       </span>
                     </button>
+                    <InfoButton cond={c.key} className="mr-2 mt-2" />
                   </li>
                 );
               })}

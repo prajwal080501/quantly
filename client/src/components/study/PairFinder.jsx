@@ -5,6 +5,9 @@ import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
 import { alreadySaved, canAdd, withFound } from '../../lib/autoFind.js';
+import { SaveComboButtons } from '../SaveComboButtons.jsx';
+import { TrustBadge } from '../TrustBadge.jsx';
+import { InfoButton } from '../InfoButton.jsx';
 import { skipsText } from '../../lib/pairs.js';
 import { bestOf } from '../../lib/research.js';
 import { Badge, Card } from '../ui.jsx';
@@ -128,7 +131,7 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
             {a.found.map((f) => (
               <li key={f.conds.join('+')} className="space-y-1 py-2 text-xs">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge></span>
+                  <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} {(f.addedKeys || []).map((k) => <InfoButton key={k} cond={k} />)} <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge> <TrustBadge trades={f.trades} winRate={f.winRate} net={f.net} /></span>
                   <span className={`num shrink-0 text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
                 </div>
                 <p className="num text-[11px] text-muted">
@@ -142,9 +145,13 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
                   <Badge tone="muted">Already in My combinations</Badge>
                 ) : (
                   <div className="flex flex-wrap gap-2">
+                    {a.key.startsWith('combo:') ? (
+                      <SaveComboButtons saved={saved} found={f} baseId={a.key.slice(6)} baseName={a.label} endpoint={endpoint} onSaved={() => own.reload?.()} disabled={busy != null} />
+                    ) : (
                     <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f)}>
                       {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (30)'}
                     </button>
+                    )}
                     {endpoint === '/options' && best(f) && canAdd(saved) && (
                       <button type="button" className="btn btn-sm" disabled={busy != null || !saved} onClick={() => add(f, best(f).stop, best(f).exits)}>
                         Add with its best settings

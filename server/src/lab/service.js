@@ -8,6 +8,9 @@ import { forIndex } from '../options/indexSettings.js';
 import { entryWindowOf } from '../options/signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { PriceBook } from '../study/priceBook.js';
+import { chaseOf } from '../options/chase.js';
+import { movedOf } from '../options/moved.js';
+import { dayBiasOf } from '../options/dayBias.js';
 import { badRequest } from '../utils/errors.js';
 import { analyzeLab, lines, presentLab } from './lab.js';
 
@@ -72,6 +75,15 @@ export class LabService {
         target: 0,
         fixedLots: 0,
         exitMin: rules.exitMin,
+        // the live trader's own rules, so the Lab's day-by-day history is what live would really have done: one call and one put at a time,
+        // the pauses after a loss and after the same side, your trades a day, the daily loss limit, the anti-chase, already-moved and with-the-day checks
+        live: true,
+        maxTrades: settings?.maxTrades ?? 3,
+        dailyLoss: settings ? ((settings.budget ?? 0) * (settings.dailyLossPct ?? 0)) / 100 : 0,
+        chase: chaseOf(settings),
+        moved: movedOf(settings),
+        withDay: dayBiasOf(settings),
+        comboStreak: settings?.comboStreak ?? 0,
         entryFrom: entryWindowOf(settings).from,
         entryTo: entryWindowOf(settings).to,
       },

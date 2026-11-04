@@ -29,3 +29,16 @@ export function autoFindText(af) {
   for (const f of af.found) lines.push(`${f.labels.join(' + ')}: ${f.trades} trades, ${f.winRate ?? '-'}% win, ${formatPnl(f.net)}; older ${part(f.train)}; newer ${part(f.test)}`);
   return lines.join('\n');
 }
+
+/**
+ * The saved combinations with combination `id` changed to the checks `conds` (its name, side, stop, exits and on/off are kept).
+ * Null when no saved combination has that id. The new checks must all hold (need = their count).
+ */
+export function withUpdated(saved, id, conds, stop = null, exits = null) {
+  if (!(saved || []).some((c) => c.id === id)) return null;
+  return saved.map((c, i) => {
+    const out = toPayload(fromSaved(c), i);
+    if (c.id !== id) return out;
+    return { ...out, conds: [...new Set(conds)].slice(0, 20), need: new Set(conds).size, ...(stop ? { stopMode: stop.mode, stopAtr: stop.k, stopPoints: stop.points } : {}), ...(exits ? { exits } : {}) };
+  });
+}

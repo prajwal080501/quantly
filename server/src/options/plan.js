@@ -11,7 +11,7 @@ import { roundToTick, round2 } from '../utils/money.js';
 
 export const MAX_LOSS_PCT = 0.3; // if the chart stop would cost more than this share of the premium, the trade is too expensive to take
 export const MIN_SIZING_LOSS_PCT = 0.05; // the loss at the chart stop used for sizing is never counted as smaller than this share of the premium
-export const HARD_STOP_MULT = 1.3; // the hard premium stop loses this many times the loss limit, so it only fires when the chart exit could not
+export const HARD_STOP_MULT = 1; // the hard premium stop loses at most the loss limit itself (charges included): it used to sit at 1.3 times it, which let a 3,000 limit lose 3,955
 export const MAX_IV = 0.35; // above this the premium is very expensive and usually deflates fast
 const MS_YEAR = 365 * 24 * 3600 * 1000;
 const WAIT_MS = 20 * 60000; // reprice about 20 minutes ahead: the stop is usually hit a little later than now
@@ -43,7 +43,10 @@ export function planTrade({ read, market: m, contract, premium, settings, rules,
 
   const lotSize = contract.lotSize;
   const limit = rules.stopLoss; // 0 = no limit
-  const byRisk = limit > 0 ? Math.floor(limit / (lotSize * chartLoss)) : Infinity;
+  // the loss at the chart stop plus the round-trip charges must fit the limit, so the hard stop (at the limit) stays behind the chart stop
+  const costOf = (n) => n * lotSize * chartLoss + roundTripCharges({ qty: n * lotSize, price: premium, segment: 'OPT' });
+  let byRisk = limit > 0 ? Math.floor(limit / (lotSize * chartLoss)) : Infinity;
+  while (limit > 0 && byRisk > 0 && costOf(byRisk) > limit) byRisk -= 1;
   const byBudget = Math.floor(Math.min(settings.budget - spentBudget, available) / (lotSize * premium * 1.02));
   const lots = Math.min(wantLots ?? settings.maxLots, settings.maxLots, byRisk, byBudget);
   if (lots < 1) {
@@ -54,7 +57,9 @@ export function planTrade({ read, market: m, contract, premium, settings, rules,
     };
   }
   const qty = lots * lotSize;
-  const stopLoss = limit > 0 ? roundToTick(Math.max(premium - (HARD_STOP_MULT * limit) / qty, 0.05)) : null;
+  const charges = roundTripCharges({ qty, price: premium, segment: 'OPT' });
+  // the hard stop: where the premium has lost the limit less the charges, so a stop-out costs about the limit after charges (plus any slippage on a fast fall)
+  const stopLoss = limit > 0 ? Math.max(round2(Math.ceil((premium - Math.max(HARD_STOP_MULT * limit - charges, limit * 0.5) / qty) * 20 - 1e-9) / 20), 0.05) : null; // rounded up to the 0.05 tick, so it never loses more
 
   return {
     plan: {
@@ -77,7 +82,7 @@ export function planTrade({ read, market: m, contract, premium, settings, rules,
       lockStart: rules.lockStart,
       lockGap: rules.lockGap,
       lockSteps: rules.steps ?? [],
-      charges: roundTripCharges({ qty, price: premium, segment: 'OPT' }),
+      charges,
     },
   };
 }

@@ -8,8 +8,15 @@ import { api } from '../lib/api.js';
 import { useTick, useLtps } from '../lib/tickStore.js';
 import { formatPrice, formatPnl, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { ExitsSheet } from '../components/ExitsSheet.jsx';
+import { TradeReplay } from '../components/TradeReplay.jsx';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { DataTable, Stack } from '../components/DataTable.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
+
+const shiftDay = (day, by) => {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + by)).toISOString().slice(0, 10);
+};
 
 function OpenRow({ p, onExit, onEdit, busy }) {
   const t = useTick(p.symbol);
@@ -58,7 +65,11 @@ export default function Positions() {
   const { version, status } = useMarket();
   const today = status?.market?.istDate;
   const { data: open, loading } = useApi('/positions?status=OPEN', [version]);
-  const { data: closed } = useApi(today ? `/positions?status=CLOSED&day=${today}` : null, [version]);
+  const [picked, setPicked] = useState(null);
+  const day = picked || today;
+  const { data: closed } = useApi(day ? `/positions?status=CLOSED&day=${day}` : null, [version]);
+  const { data: closedToday } = useApi(today && day !== today ? `/positions?status=CLOSED&day=${today}` : null, [version]);
+  const [replay, setReplay] = useState(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);
   const positions = open?.positions || [];
@@ -70,7 +81,8 @@ export default function Positions() {
   }, 0);
   const openCosts = positions.reduce((a, p) => a + p.realizedPnl - p.charges, 0);
   const closedNet = (closed?.positions || []).reduce((a, p) => a + p.netPnl, 0);
-  const dayPnl = unrealized + openCosts + closedNet;
+  const todayNet = day === today ? closedNet : (closedToday?.positions || []).reduce((a, p) => a + p.netPnl, 0);
+  const dayPnl = unrealized + openCosts + todayNet;
 
   async function run(fn) {
     setBusy(true);
@@ -97,7 +109,7 @@ export default function Positions() {
             Unrealised <span className={pnlClass(unrealized)}>{formatPnl(unrealized)}</span>
           </span>
           <span>
-            Booked <span className={pnlClass(closedNet)}>{formatPnl(closedNet)}</span>
+            Booked <span className={pnlClass(todayNet)}>{formatPnl(todayNet)}</span>
           </span>
         </div>
       </Card>
@@ -134,11 +146,24 @@ export default function Positions() {
         )}
       </Card>
 
-      {closed?.positions?.length > 0 && (
+      {day && (
         <>
-          <h2 className="pt-2 text-sm font-semibold">Closed today ({closed.positions.length})</h2>
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <button type="button" aria-label="Previous day" onClick={() => setPicked(shiftDay(day, -1))} className="btn btn-secondary btn-sm">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <h2 className="text-sm font-semibold">
+              Closed {day === today ? 'today' : day} ({closed?.positions?.length ?? 0})
+            </h2>
+            <button type="button" aria-label="Next day" disabled={day >= today} onClick={() => setPicked(shiftDay(day, 1))} className="btn btn-secondary btn-sm">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          {closed?.positions?.length > 0 ? (
           <Card className="overflow-hidden">
+            <p className="px-3 pt-2 text-[11px] text-muted">Tap a trade to replay it minute by minute: how it was entered and why it ended where it did.</p>
             <DataTable
+              onRowClick={(p) => setReplay(p._id ?? p.id)}
               columns={[
                 { key: 'when', header: 'Closed', render: (p) => formatTime(p.closedAt) },
                 {
@@ -162,8 +187,12 @@ export default function Positions() {
               footer={{ when: 'Day total', net: formatPnl(closedNet) }}
             />
           </Card>
+          ) : (
+            <Card className="p-4 text-sm text-muted">No trade closed on this day.</Card>
+          )}
         </>
       )}
+      {replay && <TradeReplay id={replay} onClose={() => setReplay(null)} />}
       {editing && <ExitsSheet position={editing} onClose={() => setEditing(null)} />}
     </div>
   );

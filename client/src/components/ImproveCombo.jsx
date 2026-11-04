@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import { toast } from 'sonner';
 import { Wand2 } from 'lucide-react';
-import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, pnlClass } from '../lib/format.js';
-import { canAdd, withFound } from '../lib/autoFind.js';
+import { SaveComboButtons } from './SaveComboButtons.jsx';
 import { dayTotals, improveLine } from '../lib/patternReview.js';
 import { Badge, Card, Fold, Segmented } from './ui.jsx';
 
@@ -59,7 +57,7 @@ function TryExits({ tries }) {
  */
 export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loading }) {
   const own = useApi('/options', []);
-  const [busy, setBusy] = useState(false);
+  const busy = false;
   const [all, setAll] = useState(false);
   const saved = own.data?.settings?.combos;
   const rows = improve?.rows ?? [];
@@ -67,19 +65,7 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
   const toggle = (key) => setTrial({ ...trial, add: trial.add.includes(key) ? trial.add.filter((k) => k !== key) : [...trial.add, key].slice(-MAX_ADD) });
   const now = newEntries?.length ? dayTotals(newEntries) : null;
 
-  async function save() {
-    setBusy(true);
-    try {
-      const picked = rows.filter((x) => trial.add.includes(x.key));
-      await api('/options', { method: 'PUT', body: { combos: withFound(saved, { conds: [...improve.conds, ...trial.add], labels: [improve.name, ...picked.map((x) => x.label)] }) } });
-      own.reload?.();
-      toast.success('Saved, switched off. Turn it on under Account > Entries.');
-    } catch (e) {
-      toast.error(e.message || 'Could not save');
-    } finally {
-      setBusy(false);
-    }
-  }
+
 
   return (
     <Card className="space-y-2 border-accent2/40 p-3">
@@ -144,9 +130,7 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
           )}
           {trial.add.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn btn-sm" disabled={busy || !saved || !canAdd(saved)} onClick={save}>
-                {canAdd(saved) ? 'Save as a new combination (off)' : 'My combinations is full (30)'}
-              </button>
+              <SaveComboButtons saved={saved} found={{ conds: [...improve.conds, ...trial.add], labels: [improve.name, ...rows.filter((x) => trial.add.includes(x.key)).map((x) => x.label)] }} baseId={trial.id} baseName={improve.name} onSaved={() => own.reload?.()} disabled={busy} />
               <button type="button" className="btn btn-sm" onClick={() => setTrial({ ...trial, add: [] })}>
                 Clear picks
               </button>
