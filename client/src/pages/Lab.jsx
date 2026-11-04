@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
 import { FlaskConical } from 'lucide-react';
-import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl as rawPnl, formatPrice, pnlClass } from '../lib/format.js';
-import { canAdd, withFound } from '../lib/autoFind.js';
+import { TrustCheck } from '../components/TrustCheck.jsx';
+import { SaveCombo } from '../components/SaveCombo.jsx';
+import { InfoButton } from '../components/InfoButton.jsx';
 import { LAB_DAYS, LAB_PRICES, addonLine, dayWord, entryStory, exitStory, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
 import { VERDICT } from '../lib/combos.js';
 import { whyText } from '../lib/patternReview.js';
@@ -36,6 +36,7 @@ function Summary({ s, title, tone }) {
         <h3 className={`text-sm font-semibold ${tone}`}>{title}</h3>
         {VERDICT[s.verdict] && <Badge tone={VERDICT[s.verdict].tone}>{VERDICT[s.verdict].text}</Badge>}
       </div>
+      <TrustCheck trades={s.trades} wins={s.wins} newerNet={s.halves?.[1] ?? null} />
       <div className="grid grid-cols-3 gap-2">
         <Tile label="Net after charges" value={formatPnl(s.net)} tone={pnlClass(s.net)} sub={`${s.trades} entries`} />
         <Tile label="Win rate" value={s.winRate == null ? '–' : `${s.winRate}%`} sub={`${s.wins} won, ${s.trades - s.wins} lost`} />
@@ -269,8 +270,9 @@ function Addons({ rows, add, onToggle }) {
         {shown.map((a) => {
           const on = add.includes(a.key);
           return (
-            <li key={a.key}>
-              <button type="button" aria-pressed={on} onClick={() => onToggle(a.key)} className={`flex w-full items-start justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
+            <li key={a.key} className="flex items-start gap-1">
+              <InfoButton of={a.key} title={a.label} className="mt-1.5" />
+              <button type="button" aria-pressed={on} onClick={() => onToggle(a.key)} className={`flex min-w-0 flex-1 items-start justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-center gap-1.5 font-medium">+ {a.label} <Badge tone="muted">{a.group}</Badge> {VERDICT[a.verdict] && <Badge tone={VERDICT[a.verdict].tone}>{VERDICT[a.verdict].text}</Badge>}</span>
                   <span className="num block text-[11px] text-muted">{addonLine(a)}</span>
@@ -294,7 +296,6 @@ export default function Lab({ embedded = false }) {
   const [days, setDays] = useState('15');
   const [prices, setPrices] = useState('mixed');
   const [selected, setSelected] = useState(null);
-  const [busy, setBusy] = useState(false);
   const choices = useApi('/lab', []);
   const own = useApi('/options', []);
   const run = useApi(base ? labPath({ base, add, days, prices }) : null, [base, add.join(','), days, prices]);
@@ -316,20 +317,6 @@ export default function Lab({ embedded = false }) {
   };
   const chosen = r?.entries.find((e) => e.id === selected) ?? null;
   const comboBase = base.startsWith('combo:');
-
-  async function save() {
-    setBusy(true);
-    try {
-      const picked = r.addons.filter((a) => add.includes(a.key));
-      await api('/options', { method: 'PUT', body: { combos: withFound(saved, { conds: [...r.base.conds, ...add], labels: [r.base.name, ...picked.map((x) => x.label)] }) } });
-      own.reload?.();
-      toast.success('Saved, switched off. Turn it on under Account > Entries.');
-    } catch (e) {
-      toast.error(e.message || 'Could not save');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   const list = choices.data?.choices;
   return (
@@ -362,7 +349,7 @@ export default function Lab({ embedded = false }) {
       {r && (
         <>
           <Card className="space-y-3 p-3">
-            <p className="text-[11px] leading-snug text-muted"><b className="text-fg">{r.base.name}</b>: {r.base.text}. {r.period.from} to {r.period.to} ({r.period.days} trading days). {r.pricing.real} entr{r.pricing.real === 1 ? 'y' : 'ies'} priced from real saved premiums, {r.pricing.estimated} estimated.</p>
+            <p className="text-[11px] leading-snug text-muted"><b className="text-fg">{r.base.name}</b> <InfoButton keys={r.base.conds} title={r.base.name} className="align-middle" />: {r.base.text}. {r.period.from} to {r.period.to} ({r.period.days} trading days). {r.pricing.real} entr{r.pricing.real === 1 ? 'y' : 'ies'} priced from real saved premiums, {r.pricing.estimated} estimated.</p>
             <Summary s={r.stats} title={r.withAdd ? 'Now' : 'Result'} tone="" />
             {r.withAdd && <Summary s={r.withAdd} title={`With ${r.withAdd.labels.join(' + ')}`} tone="text-accent" />}
             <Equity base={r.stats} withAdd={r.withAdd} />
@@ -388,7 +375,14 @@ export default function Lab({ embedded = false }) {
             {r.addons.length === 0 ? <p className="text-xs text-muted">No single indicator changes these entries.</p> : <Addons rows={r.addons} add={add} onToggle={(k) => { setAdd((a) => togglePick(a, k)); setSelected(null); }} />}
             {add.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {comboBase && <button type="button" className="btn btn-sm" disabled={busy || !saved || !canAdd(saved)} onClick={save}>{canAdd(saved) ? 'Save as a new combination (off)' : 'My combinations is full (30)'}</button>}
+                <SaveCombo
+                  saved={saved}
+                  baseId={comboBase ? base.slice('combo:'.length) : null}
+                  addKeys={add}
+                  addLabels={r.addons.filter((a) => add.includes(a.key)).map((a) => a.label)}
+                  found={{ conds: [...r.base.conds, ...add], labels: [r.base.name, ...r.addons.filter((a) => add.includes(a.key)).map((a) => a.label)] }}
+                  onSaved={() => { own.reload?.(); choices.reload?.(); }}
+                />
                 <button type="button" className="btn btn-sm" onClick={() => setAdd([])}>Clear picks</button>
               </div>
             )}

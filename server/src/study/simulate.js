@@ -36,11 +36,11 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                `chase` ({ pct, minutes }) skips a buy whose real premium is already more than `pct` percent above its low of the last `minutes` minutes ({ skipped: 'chase' }).
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
- *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
+ *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at the limit less charges (`capLoss`, the default) or HARD_STOP_MULT times it. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
   // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades
-  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null } = signal.exits ? { ...params, ...signal.exits } : params;
+  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null, capLoss = true } = signal.exits ? { ...params, ...signal.exits } : params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const prices = given && (!mixPrices || given.hasDay(istParts(new Date(signal.time * 1000)).dateKey)) ? given : null; // mixPrices: a day with no saved premiums is estimated, not skipped
@@ -85,8 +85,9 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   const targetProfit = target > 0 ? target * lots : 0;
   // the profit lock as rows: with `steps` (even none) those rows, otherwise the single row lockStart / lockGap; each row is sorted by its profit
   const rungs = (Array.isArray(steps) ? steps : [{ at: lockStart, keep: lockStart - lockGap }]).filter((r) => r.at > 0).sort((a, b) => a.at - b.at);
-  const hardLoss = lossLimit > 0 ? -HARD_STOP_MULT * lossLimit : -Infinity;
   const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
+  // the hard premium stop, as live (options/plan.js hardLossOf): the limit less the round-trip charges with the loss cap on, 1.3 times it off
+  const hardLoss = lossLimit > 0 ? -(capLoss ? Math.max(lossLimit - 2 * buyCharges, lossLimit * 0.5) : HARD_STOP_MULT * lossLimit) : -Infinity;
   const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
   const day = istParts(entryAt).dateKey;
 

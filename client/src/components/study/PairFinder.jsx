@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
-import { alreadySaved, canAdd, withFound } from '../../lib/autoFind.js';
+import { alreadySaved } from '../../lib/autoFind.js';
+import { TrustCheck } from '../TrustCheck.jsx';
+import { SaveCombo } from '../SaveCombo.jsx';
+import { InfoButton } from '../InfoButton.jsx';
 import { skipsText } from '../../lib/pairs.js';
 import { bestOf } from '../../lib/research.js';
 import { Badge, Card } from '../ui.jsx';
@@ -12,6 +13,27 @@ import { ComboResearch } from './ComboResearch.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 
 const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${formatPnl(p.net)}`;
+
+/** Keep a found result: update the combination it started from, or save it as a new one; optionally with its best stop and profit setting. */
+function FoundSave({ f, a, saved, endpoint, onSaved }) {
+  const [withBest, setWithBest] = useState(false);
+  const b = endpoint === '/options' ? best(f) : null;
+  const own = a.key.startsWith('combo:') && !a.part;
+  const baseId = own ? a.key.slice('combo:'.length) : null;
+  const base = baseId ? (saved || []).find((c) => c.id === baseId) : null;
+  const addKeys = base ? f.conds.filter((k) => !base.conds.includes(k)) : f.conds;
+  return (
+    <div className="space-y-1.5">
+      {b && (
+        <label className="flex items-center gap-2 text-[11px] text-muted">
+          <input type="checkbox" checked={withBest} onChange={(e) => setWithBest(e.target.checked)} /> Also use its best stop and profit setting
+        </label>
+      )}
+      <SaveCombo saved={saved} baseId={base ? baseId : null} addKeys={addKeys} addLabels={[].concat(f.added)} found={f} endpoint={endpoint} stop={withBest ? b?.stop : null} exits={withBest ? b?.exits : null} onSaved={onSaved} compact />
+      {a.part && <p className="text-[11px] text-muted">This started from a part of {a.of}, so it can only be saved as a new combination.</p>}
+    </div>
+  );
+}
 
 /** The check or saved combination a finder starts from. `kind` is 'options' or 'shares'. */
 export function StartFromSelect({ kind, value, onChange }) {
@@ -82,22 +104,8 @@ function best(f) {
  */
 export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putWord = 'Puts', onApplied }) {
   const own = useApi(endpoint, []);
-  const [busy, setBusy] = useState(null);
   if (!pf) return null;
   const saved = own.data?.settings?.combos;
-
-  async function add(f, stop = null, exits = null) {
-    setBusy(f.conds.join('+'));
-    try {
-      await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f, stop, exits) } });
-      own.reload?.();
-      toast.success('Added, switched off. Turn it on under Account > Entries.');
-    } catch (e) {
-      toast.error(e.message || 'Could not add');
-    } finally {
-      setBusy(null);
-    }
-  }
 
   return (
     <Card className="space-y-2 border-accent2/40 p-3">
@@ -128,7 +136,7 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
             {a.found.map((f) => (
               <li key={f.conds.join('+')} className="space-y-1 py-2 text-xs">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge></span>
+                  <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} <InfoButton keys={f.conds} title={[].concat(f.added).join(' + ')} className="align-middle" /> <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge></span>
                   <span className={`num shrink-0 text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
                 </div>
                 <p className="num text-[11px] text-muted">
@@ -138,19 +146,11 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
                 <p className="num text-[11px] text-muted">
                   Older days: {part(f.train)} · Newer days: {part(f.test)}
                 </p>
+                <TrustCheck trades={f.trades} wins={Math.round(((f.winRate ?? 0) * f.trades) / 100)} tried={pf.tried || 1} newerNet={f.test?.net ?? null} />
                 {alreadySaved(saved, f) ? (
                   <Badge tone="muted">Already in My combinations</Badge>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f)}>
-                      {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (30)'}
-                    </button>
-                    {endpoint === '/options' && best(f) && canAdd(saved) && (
-                      <button type="button" className="btn btn-sm" disabled={busy != null || !saved} onClick={() => add(f, best(f).stop, best(f).exits)}>
-                        Add with its best settings
-                      </button>
-                    )}
-                  </div>
+                  <FoundSave f={f} a={a} saved={saved} endpoint={endpoint} onSaved={() => own.reload?.()} />
                 )}
                 {f.research && <ComboResearch r={f.research} own={false} />}
               </li>

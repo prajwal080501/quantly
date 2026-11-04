@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { toast } from 'sonner';
 import { Wand2 } from 'lucide-react';
-import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, pnlClass } from '../lib/format.js';
-import { canAdd, withFound } from '../lib/autoFind.js';
+import { SaveCombo } from './SaveCombo.jsx';
+import { InfoButton } from './InfoButton.jsx';
 import { dayTotals, improveLine } from '../lib/patternReview.js';
 import { Badge, Card, Fold, Segmented } from './ui.jsx';
 
@@ -59,27 +58,12 @@ function TryExits({ tries }) {
  */
 export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loading }) {
   const own = useApi('/options', []);
-  const [busy, setBusy] = useState(false);
   const [all, setAll] = useState(false);
   const saved = own.data?.settings?.combos;
   const rows = improve?.rows ?? [];
   const shown = all ? rows : rows.slice(0, 8);
   const toggle = (key) => setTrial({ ...trial, add: trial.add.includes(key) ? trial.add.filter((k) => k !== key) : [...trial.add, key].slice(-MAX_ADD) });
   const now = newEntries?.length ? dayTotals(newEntries) : null;
-
-  async function save() {
-    setBusy(true);
-    try {
-      const picked = rows.filter((x) => trial.add.includes(x.key));
-      await api('/options', { method: 'PUT', body: { combos: withFound(saved, { conds: [...improve.conds, ...trial.add], labels: [improve.name, ...picked.map((x) => x.label)] }) } });
-      own.reload?.();
-      toast.success('Saved, switched off. Turn it on under Account > Entries.');
-    } catch (e) {
-      toast.error(e.message || 'Could not save');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <Card className="space-y-2 border-accent2/40 p-3">
@@ -125,8 +109,9 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
             {shown.map((x) => {
               const on = trial.add.includes(x.key);
               return (
-                <li key={x.key}>
-                  <button type="button" aria-pressed={on} onClick={() => toggle(x.key)} className={`flex w-full items-start justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
+                <li key={x.key} className="flex items-start gap-1">
+                  <InfoButton of={x.key} title={x.label} className="mt-1.5" />
+                  <button type="button" aria-pressed={on} onClick={() => toggle(x.key)} className={`flex min-w-0 flex-1 items-start justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
                     <span className="min-w-0">
                       <span className="block font-medium">+ {x.label} <Badge tone="muted">{x.group}</Badge></span>
                       <span className="num block text-[11px] text-muted">{improveLine(x)}</span>
@@ -144,9 +129,14 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
           )}
           {trial.add.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn btn-sm" disabled={busy || !saved || !canAdd(saved)} onClick={save}>
-                {canAdd(saved) ? 'Save as a new combination (off)' : 'My combinations is full (30)'}
-              </button>
+              <SaveCombo
+                saved={saved}
+                baseId={trial.id}
+                addKeys={trial.add}
+                addLabels={rows.filter((x) => trial.add.includes(x.key)).map((x) => x.label)}
+                found={{ conds: [...improve.conds, ...trial.add], labels: [improve.name, ...rows.filter((x) => trial.add.includes(x.key)).map((x) => x.label)] }}
+                onSaved={() => own.reload?.()}
+              />
               <button type="button" className="btn btn-sm" onClick={() => setTrial({ ...trial, add: [] })}>
                 Clear picks
               </button>

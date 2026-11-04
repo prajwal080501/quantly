@@ -16,6 +16,8 @@ const FIELDS = [
   { key: 'maxOpen', label: 'Most trades open at once', step: 1, min: 1, max: 3 },
   { key: 'maxTrades', label: 'Most trades a day', step: 1, min: 1, max: 10 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
+  { key: 'lossStreak', label: 'Stop for the day after this many losses in a row (0 = off)', step: 1, min: 0, max: 5 },
+  { key: 'benchAfter', label: 'Switch a combination off after this many live losses in a row (0 = off)', step: 1, min: 0, max: 10 },
 ];
 
 const STUDY_WINNERS = ['breakout', 'engulfing']; // 30-day study: over 20 trades each and a win rate above the roughly 61% break-even (inside bar and EMA cross made money on only 6 and 7 trades)
@@ -258,6 +260,13 @@ export function OptionsLimits({ data, reload }) {
   }
 
   return (
+    <div className="space-y-2">
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 p-2">
+      <p className="text-[11px] leading-snug text-muted">
+        <b className="text-fg">Never lose more than my limit.</b> {s.capLoss !== false ? 'On: the hard premium stop sits at your loss limit less charges, so a trade ends at most your limit down (a sudden gap can still slip a little).' : 'Off: the hard stop sits at 1.3 times your limit, so a ₹3,000 limit can end about ₹3,999 down.'}
+      </p>
+      <Switch on={s.capLoss !== false} label="Never lose more than my limit" onClick={() => save({ capLoss: s.capLoss === false })} />
+    </div>
     <div className="grid grid-cols-2 gap-2">
       {FIELDS.map((f) => (
         <label key={f.key} className="text-[11px] text-muted">
@@ -274,6 +283,7 @@ export function OptionsLimits({ data, reload }) {
           />
         </label>
       ))}
+    </div>
     </div>
   );
 }

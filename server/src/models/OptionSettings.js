@@ -48,6 +48,9 @@ const optionSettingsSchema = new mongoose.Schema(
     patternMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a pattern is bought only while the chart score of its side is at least this (the study's "Patterns, score 70+")
     scoreEntries: { type: Boolean, default: false }, // no longer used: the all-checks score does not buy any more (patterns and combinations do)
     dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today
+    capLoss: { type: Boolean, default: true }, // true: the hard premium stop sits at the loss limit less charges, so a trade ends at most the limit down (options/plan.js hardLossOf); false: the old 1.3 times the limit
+    lossStreak: { type: Number, default: 2, min: 0, max: 5 }, // 0 = off; otherwise no new automatic buy today after this many losing option trades in a row today
+    benchAfter: { type: Number, default: 3, min: 0, max: 10 }, // 0 = off; otherwise a combination is switched off by itself after this many live losing trades in a row (it stays saved)
     comboEntries: { type: Boolean, default: true }, // buy when one of the user's own combinations (below) turns true
     combos: { type: [comboSchema], default: [] }, // the user's own entry combinations (Account > Entries); see combos/combos.js
   },

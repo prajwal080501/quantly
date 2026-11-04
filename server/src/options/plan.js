@@ -11,7 +11,16 @@ import { roundToTick, round2 } from '../utils/money.js';
 
 export const MAX_LOSS_PCT = 0.3; // if the chart stop would cost more than this share of the premium, the trade is too expensive to take
 export const MIN_SIZING_LOSS_PCT = 0.05; // the loss at the chart stop used for sizing is never counted as smaller than this share of the premium
-export const HARD_STOP_MULT = 1.3; // the hard premium stop loses this many times the loss limit, so it only fires when the chart exit could not
+export const HARD_STOP_MULT = 1.3; // the old hard premium stop: this many times the loss limit, so it only fired when the chart exit could not
+/**
+ * Where the hard premium stop sits, in rupees of gross loss for the whole trade. With the loss cap on (the default, OptionSettings.capLoss) it is
+ * the limit less the round-trip charges, so a trade never ends more than the limit down after charges (a gap through the stop can still slip).
+ * Off, it is the old 1.3 times the limit, which let a ₹3,000 limit end at about -₹3,999.
+ */
+export function hardLossOf(limit, { capLoss = true, charges = 0 } = {}) {
+  if (!(limit > 0)) return null;
+  return capLoss ? Math.max(limit - charges, limit * 0.5) : HARD_STOP_MULT * limit;
+}
 export const MAX_IV = 0.35; // above this the premium is very expensive and usually deflates fast
 const MS_YEAR = 365 * 24 * 3600 * 1000;
 const WAIT_MS = 20 * 60000; // reprice about 20 minutes ahead: the stop is usually hit a little later than now
@@ -54,7 +63,9 @@ export function planTrade({ read, market: m, contract, premium, settings, rules,
     };
   }
   const qty = lots * lotSize;
-  const stopLoss = limit > 0 ? roundToTick(Math.max(premium - (HARD_STOP_MULT * limit) / qty, 0.05)) : null;
+  const charges = roundTripCharges({ qty, price: premium, segment: 'OPT' });
+  const hardLoss = hardLossOf(limit, { capLoss: settings.capLoss !== false, charges });
+  const stopLoss = hardLoss != null ? roundToTick(Math.max(premium - hardLoss / qty, 0.05)) : null;
 
   return {
     plan: {
@@ -77,7 +88,8 @@ export function planTrade({ read, market: m, contract, premium, settings, rules,
       lockStart: rules.lockStart,
       lockGap: rules.lockGap,
       lockSteps: rules.steps ?? [],
-      charges: roundTripCharges({ qty, price: premium, segment: 'OPT' }),
+      charges,
+      capLoss: settings.capLoss !== false,
     },
   };
 }

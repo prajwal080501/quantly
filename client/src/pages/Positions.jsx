@@ -8,6 +8,7 @@ import { api } from '../lib/api.js';
 import { useTick, useLtps } from '../lib/tickStore.js';
 import { formatPrice, formatPnl, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { ExitsSheet } from '../components/ExitsSheet.jsx';
+import { TradeReplay } from '../components/TradeReplay.jsx';
 import { DataTable, Stack } from '../components/DataTable.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
 
@@ -59,6 +60,9 @@ export default function Positions() {
   const today = status?.market?.istDate;
   const { data: open, loading } = useApi('/positions?status=OPEN', [version]);
   const { data: closed } = useApi(today ? `/positions?status=CLOSED&day=${today}` : null, [version]);
+  const [earlier, setEarlier] = useState(false);
+  const { data: past } = useApi(earlier ? '/positions?status=CLOSED' : null, [version, earlier]);
+  const [replay, setReplay] = useState(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);
   const positions = open?.positions || [];
@@ -134,13 +138,17 @@ export default function Positions() {
         )}
       </Card>
 
-      {closed?.positions?.length > 0 && (
+      {(closed?.positions || earlier) && (
         <>
-          <h2 className="pt-2 text-sm font-semibold">Closed today ({closed.positions.length})</h2>
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <h2 className="text-sm font-semibold">{earlier ? `Closed trades (${past?.positions?.length ?? '…'})` : `Closed today (${closed?.positions?.length ?? 0})`}</h2>
+            <button type="button" className="btn btn-sm" onClick={() => setEarlier((v) => !v)}>{earlier ? 'Today only' : 'Earlier days too'}</button>
+          </div>
+          <p className="text-[11px] text-muted">Tap a trade to replay it minute by minute.</p>
           <Card className="overflow-hidden">
             <DataTable
               columns={[
-                { key: 'when', header: 'Closed', render: (p) => formatTime(p.closedAt) },
+                { key: 'when', header: 'Closed', render: (p) => (earlier ? <Stack top={formatTime(p.closedAt)} sub={p.tradingDay} /> : formatTime(p.closedAt)) },
                 {
                   key: 'stock',
                   header: 'Stock',
@@ -158,13 +166,15 @@ export default function Positions() {
                 { key: 'px', header: 'Buy → Sell', align: 'right', render: (p) => `${formatPrice(p.buyQty ? p.buyValue / p.buyQty : null)} → ${formatPrice(p.sellQty ? p.sellValue / p.sellQty : null)}` },
                 { key: 'net', header: 'Net', align: 'right', render: (p) => <Stack top={<span className={`font-bold ${pnlClass(p.netPnl)}`}>{formatPnl(p.netPnl)}</span>} sub={`charges ${formatINR(p.charges)}`} /> },
               ]}
-              rows={closed.positions}
-              footer={{ when: 'Day total', net: formatPnl(closedNet) }}
+              rows={earlier ? [...(past?.positions || [])].sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt)) : closed?.positions || []}
+              onRowClick={(p) => setReplay(p._id)}
+              footer={earlier ? { when: 'Total', net: formatPnl((past?.positions || []).reduce((a, p) => a + p.netPnl, 0)) } : { when: 'Day total', net: formatPnl(closedNet) }}
             />
           </Card>
         </>
       )}
       {editing && <ExitsSheet position={editing} onClose={() => setEditing(null)} />}
+      {replay && <TradeReplay id={replay} onClose={() => setReplay(null)} />}
     </div>
   );
 }

@@ -67,6 +67,7 @@ export class LabService {
         trail: trailOf(settings),
         breakEven: breakEvenOf(settings),
         lossLimit: rules.stopLoss ?? 0,
+      capLoss: settings?.capLoss !== false,
         maxLots: settings?.maxLots ?? 2,
         sideOnly: settings?.sideOnly ?? null,
         target: 0,

@@ -8,6 +8,7 @@ import { useTick, useLtps } from '../../lib/tickStore.js';
 import { formatPrice, formatPnl, formatINR, formatTime, pnlClass } from '../../lib/format.js';
 import { lotsOf, premiumGain } from '../../lib/options.js';
 import { ExitsSheet } from '../ExitsSheet.jsx';
+import { TradeReplay } from '../TradeReplay.jsx';
 import { DataTable, Stack } from '../DataTable.jsx';
 import { Badge, Card, EmptyState, Flash, Skeleton } from '../ui.jsx';
 
@@ -76,6 +77,7 @@ export function OptionsPositions() {
   const { data: closed } = useApi(today ? `/positions?status=CLOSED&segment=OPT&day=${today}` : null, [version]);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [replay, setReplay] = useState(null);
   const positions = open?.positions || [];
   const symbols = positions.map((p) => p.symbol);
   const ltpOf = useLtps(symbols);
@@ -138,11 +140,12 @@ export function OptionsPositions() {
         <>
           <h2 className="pt-1 text-sm font-semibold">Closed today ({closedRows.length})</h2>
           <Card className="overflow-hidden">
-            <DataTable columns={closedColumns} rows={closedRows} footer={{ when: 'Day total', net: formatPnl(closedRows.reduce((a, p) => a + p.netPnl, 0)) }} />
+            <DataTable columns={closedColumns} rows={closedRows} onRowClick={(p) => setReplay(p._id)} footer={{ when: 'Day total', net: formatPnl(closedRows.reduce((a, p) => a + p.netPnl, 0)) }} />
           </Card>
         </>
       )}
       {editing && <ExitsSheet position={editing} onClose={() => setEditing(null)} />}
+      {replay && <TradeReplay id={replay} onClose={() => setReplay(null)} />}
     </div>
   );
 }

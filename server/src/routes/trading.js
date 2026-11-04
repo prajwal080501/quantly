@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate.js';
 import { addFunds, getFunds } from '../services/walletService.js';
 import { getDashboard } from '../services/analytics.js';
 import { parseOptionSymbol, optionLabel } from '../options/symbols.js';
+import { tradeReplay } from '../report/replay.js';
 
 const price = z.coerce.number().positive().optional();
 const orderSchema = z
@@ -104,6 +105,14 @@ export function tradingRoutes({ engine, market, config }) {
         target: legs.find((l) => l.symbol === p.symbol && l.role === 'TARGET')?.price ?? null,
       })),
     });
+  });
+
+  // Trade replay: one trade minute by minute from the saved 1-minute candles, with why it was bought and how it ended.
+  router.get('/positions/:id/replay', async (req, res) => {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.id)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'not a trade id' } });
+    const replay = await tradeReplay({ userId: req.userId, positionId: req.params.id, market });
+    if (!replay) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Trade not found' } });
+    res.json({ replay });
   });
 
   router.put('/positions/:symbol/exits', validate(exitsSchema), async (req, res) => {

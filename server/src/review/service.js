@@ -188,6 +188,7 @@ export class ReviewService {
       expiryWeekday: this.market.weekdayOf?.(index) ?? this.market.expiryWeekday,
       strikeStep: idx.strikeStep,
       lossLimit: rules.stopLoss ?? 0,
+      capLoss: settings?.capLoss !== false,
       maxLots: settings?.maxLots ?? 2,
       sideOnly: settings?.sideOnly ?? null,
       exitMin: rules.exitMin,

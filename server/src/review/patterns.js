@@ -276,7 +276,7 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
       continue;
     }
     const key = `combo:${combo.id}`;
-    patterns.push({ key, label: `Mine: ${combo.name}`, text: describeCombo(combo), combo: true, ...(combo.on === false ? { off: true } : {}) });
+    patterns.push({ key, label: `Mine: ${combo.name}`, text: describeCombo(combo), combo: true, conds: [...combo.conds, ...(combo.also || [])], ...(combo.on === false ? { off: true } : {}) });
     comboInfo.set(key, combo);
     for (const s of comboSignals(chart, combo, { label: key, when: entryTestOf(params) }).filter((x) => dayOf(x.time - 300) === day)) {
       found.push({ ...s, why: heldConditions(chart, combo, s.side === 'CE' ? 1 : -1, s.i) });

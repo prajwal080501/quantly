@@ -141,9 +141,12 @@ test('with a loss limit the lots are sized to it like the live trader, a stop to
 
   const gap = minutes(24000, [0, 0, 0, 0, 0]);
   gap[3] = { ...gap[3], low: 23925, close: 23960 }; // a spike down far enough to cost more than 1.3 times the limit, closing back above the stop
-  const t = simulateTrade({ c1: gap, byTime: index(gap), signal: { technique: 'x', side: 'CE', time: start, stop: 23955 }, params: { ...PARAMS, lossLimit: 1500, maxLots: 1 } });
+  const t = simulateTrade({ c1: gap, byTime: index(gap), signal: { technique: 'x', side: 'CE', time: start, stop: 23955 }, params: { ...PARAMS, lossLimit: 1500, maxLots: 1, capLoss: false } });
   assert.equal(t.reason, 'HARD');
   assert.ok(t.gross <= -1950 && t.gross > -2600, `gross ${t.gross}`);
+  const capped = simulateTrade({ c1: gap, byTime: index(gap), signal: { technique: 'x', side: 'CE', time: start, stop: 23955 }, params: { ...PARAMS, lossLimit: 1500, maxLots: 1 } });
+  assert.equal(capped.reason, 'HARD');
+  assert.ok(capped.net >= -1500 - 20 && capped.net < -1300, `with the loss cap the trade ends at most the limit down after charges, net ${capped.net}`);
 });
 
 test('the summary counts wins, rupees, drawdown and where the trades ended', () => {

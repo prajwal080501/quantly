@@ -1,3 +1,4 @@
+import { InfoButton } from '../InfoButton.jsx';
 import { useMemo, useState } from 'react';
 import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -197,8 +198,8 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
               {g.items.map((c) => {
                 const on = combo.conds.includes(c.key);
                 return (
-                  <li key={c.key}>
-                    <button type="button" aria-pressed={on} onClick={() => setCombo((x) => toggleCheck(x, c.key))} className={`flex w-full items-start gap-2 px-3 py-2 text-left ${on ? 'bg-accent2-soft' : ''}`}>
+                  <li key={c.key} className="flex items-start">
+                    <button type="button" aria-pressed={on} onClick={() => setCombo((x) => toggleCheck(x, c.key))} className={`flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left ${on ? 'bg-accent2-soft' : ''}`}>
                       <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${on ? 'border-accent bg-accent text-on-accent' : 'border-line'}`}>{on && <Check className="h-3 w-3" />}</span>
                       <span className="min-w-0">
                         <span className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
@@ -209,6 +210,7 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
                         <span className="block text-[11px] leading-snug text-muted">{c.text}</span>
                       </span>
                     </button>
+                    <InfoButton of={c.key} title={c.label} className="mr-2 mt-2" />
                   </li>
                 );
               })}
@@ -289,12 +291,13 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
                   <Card className="space-y-1.5 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">{c.name}</div>
+                        <div className="flex items-center gap-1 text-sm font-semibold"><span className="truncate">{c.name}</span> <InfoButton keys={[...c.conds, ...(c.also || [])]} title={c.name} />{c.benchedOn && <Badge tone="warn">Benched {c.benchedOn}</Badge>}</div>
                         <div className="text-[11px] text-muted">{ruleText(fromSaved(c))}</div>
                       </div>
                       <Switch on={c.on} disabled={busy} label={`Use ${c.name}`} onClick={() => toggleOn(c.id)} />
                     </div>
-                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{kind === 'options' && c.index ? ` · ${indexWord(c)}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
+                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{c.also?.length ? `, and also ${c.also.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}` : ''}{kind === 'options' && c.index ? ` · ${indexWord(c)}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
+                    {c.benchedOn && !c.on && <p className="rounded-lg bg-warn/15 px-2 py-1 text-[11px] leading-snug">Switched off by itself on {c.benchedOn} after losing trades in a row (Account &gt; Limits). Look at its trades (tap any trade in Options &gt; History) before turning it back on.</p>}
                     {kind === 'options' && !c.on && <p className="text-[11px] leading-snug text-muted">Off: the bot does not buy on it, but studies still try it, and one "together" row runs every combination as a set.</p>}
                     <div className="flex justify-end gap-2">
                       <button type="button" className="btn btn-sm" onClick={() => setEditing(c.id)} disabled={busy}>

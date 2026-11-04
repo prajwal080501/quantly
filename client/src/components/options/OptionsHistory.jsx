@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { History } from 'lucide-react';
+import { TradeReplay } from '../TradeReplay.jsx';
 import { useMarket } from '../../context/MarketContext.jsx';
 import { useApi } from '../../lib/useApi.js';
 import { formatPnl, formatINR, pnlClass } from '../../lib/format.js';
@@ -21,6 +23,7 @@ export function OptionsHistory() {
   const { version } = useMarket();
   const { data, loading } = useApi('/positions?status=CLOSED&segment=OPT', [version]);
   const { data: dash } = useApi('/dashboard?segment=OPT', [version]);
+  const [replay, setReplay] = useState(null);
   if (loading && !data) return <Skeleton className="h-48 w-full" />;
   const rows = [...(data?.positions || [])].sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt));
   const st = dash?.stats;
@@ -41,9 +44,11 @@ export function OptionsHistory() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
-          <DataTable columns={closedColumns} rows={rows} footer={{ when: 'Total', net: formatPnl(rows.reduce((a, p) => a + p.netPnl, 0)) }} />
+          <p className="border-b border-line px-3 py-2 text-[11px] text-muted">Tap a trade to replay it minute by minute: its profit each minute, why it was bought and how it ended.</p>
+          <DataTable columns={closedColumns} rows={rows} onRowClick={(p) => setReplay(p._id)} footer={{ when: 'Total', net: formatPnl(rows.reduce((a, p) => a + p.netPnl, 0)) }} />
         </Card>
       )}
+      {replay && <TradeReplay id={replay} onClose={() => setReplay(null)} />}
       {days.length > 0 && (
         <Card className="overflow-hidden">
           <DataTable

@@ -1,3 +1,4 @@
+import { InfoButton } from '../components/InfoButton.jsx';
 import { Children, cloneElement, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
@@ -247,6 +248,7 @@ function SignalDetail({ s, pattern, exits, name = 'Nifty' }) {
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-semibold">
           {clock(s.time)} · {pattern ? shortLabel(pattern.label) : s.technique} · {sideWord(s.side)}
+          <InfoButton className="ml-1 align-middle" title={pattern ? shortLabel(pattern.label) : s.technique} {...(pattern?.conds ? { keys: pattern.conds } : { of: String(s.technique).replace(/^check:/, '') })} />
         </div>
         <Badge tone={s.side === 'CE' ? 'up' : 'down'}>{s.side === 'CE' ? 'Call' : 'Put'}</Badge>
       </div>
@@ -426,8 +428,9 @@ function PatternsTab({ day }) {
               const c = (data.checks || []).find((k) => k.key === x.key);
               const on = watch.includes(`check:${x.key}`);
               return (
-                <li key={x.key}>
-                  <button type="button" onClick={() => toggle(`check:${x.key}`)} aria-pressed={on} className={`flex w-full items-center justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
+                <li key={x.key} className="flex items-center gap-1">
+                  <InfoButton of={x.key} title={c?.label ?? x.key} />
+                  <button type="button" onClick={() => toggle(`check:${x.key}`)} aria-pressed={on} className={`flex min-w-0 flex-1 items-center justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
                     <span className="min-w-0">
                       <span className="block font-medium">{c?.label ?? x.key}</span>
                       <span className="num block text-[11px] text-muted">{c?.group} · {x.trades} traded of {x.signals} · {x.trades ? Math.round((x.wins / x.trades) * 100) : 0}% win · Calls {formatPnl(x.calls)} · Puts {formatPnl(x.puts)}</span>
