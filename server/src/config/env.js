@@ -32,6 +32,9 @@ export const env = {
   // Free headline feeds (Google News RSS). Turn off if the server cannot reach the internet.
   newsEnabled: bool(process.env.NEWS_ENABLED, true),
 
+  // One-second record of Nifty and the streaming option contracts (the newest 3 days are kept). Turn off with TICK_RECORD=false.
+  tickRecord: bool(process.env.TICK_RECORD, true),
+
   startingBalance: num(process.env.STARTING_BALANCE, 100000),
   misLeverage: num(process.env.MIS_LEVERAGE, 5),
   maxOrderQty: num(process.env.MAX_ORDER_QTY, 100000),

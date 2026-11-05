@@ -9,6 +9,7 @@ import { formatPrice, formatINR, formatInt } from '../../lib/format.js';
 import { shortExpiry } from '../../lib/options.js';
 import { indexOf } from '../../lib/indexes.js';
 import { Card, Skeleton } from '../ui.jsx';
+import { OrderBook } from './OrderBook.jsx';
 
 const SIDE = {
   CE: { title: 'Call (CE)', hint: 'pays if it rises', icon: TrendingUp, tone: 'up' },
@@ -135,6 +136,7 @@ export function OptionsSignal({ index = 'NIFTY', onBought }) {
           <SideCard key={k} side={data[k]} contract={data.contracts[k.toUpperCase()]} preview={data.preview?.[k.toUpperCase()]} name={idx.short} busy={busy} gate={blocked} onBuy={buy} />
         ))}
       </div>
+      <OrderBook contracts={data.contracts} />
     </div>
   );
 }
