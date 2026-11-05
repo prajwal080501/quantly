@@ -7,6 +7,7 @@ import { MarketProvider } from './context/MarketContext.jsx';
 import { Layout } from './components/Layout.jsx';
 import { Skeleton } from './components/ui.jsx';
 import AuthPage from './pages/AuthPage.jsx';
+import { isStaleBuildError, reloadOnce } from './lib/staleBuild.js';
 import Watchlist from './pages/Watchlist.jsx';
 
 const StockDetail = lazy(() => import('./pages/StockDetail.jsx'));
@@ -54,12 +55,25 @@ class CrashCatcher extends Component {
     return { error };
   }
 
+  componentDidCatch(error) {
+    // Old page files after an update: load the new version once instead of showing the error.
+    if (isStaleBuildError(error) && reloadOnce()) this.setState({ reloading: true });
+  }
+
   render() {
-    const { error } = this.state;
+    const { error, reloading } = this.state;
     if (!error) return this.props.children;
+    if (reloading) return <div className="m-4 text-sm text-muted">App was updated. Loading the new version…</div>;
+    const stale = isStaleBuildError(error);
     return (
       <div className="m-4 space-y-2 rounded-2xl border border-down/40 p-4 text-sm">
         <div className="font-semibold text-down">This page hit an error</div>
+        {stale && (
+          <div className="text-xs">
+            The app was updated while this page was open. Tap Reload. If it keeps coming back, clear this site's data in
+            the browser settings (or close the tab and open http://localhost:5000 again).
+          </div>
+        )}
         <pre className="whitespace-pre-wrap break-words text-xs text-muted">{String(error?.stack || error)}</pre>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.location.reload()}>
           Reload
