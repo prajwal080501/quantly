@@ -3,7 +3,7 @@ import { ClipboardCopy, Play, Search, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyText } from '../../lib/copyText.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
-import { INDEXES, indexOf, loadIndex, saveIndex } from '../../lib/indexes.js';
+import { indexOf, loadIndex, saveIndex } from '../../lib/indexes.js';
 import { bestOf } from '../../lib/research.js';
 import { sharesText, studyText } from '../../lib/study.js';
 import { skipsText, winnerOf } from '../../lib/pairs.js';
@@ -129,7 +129,6 @@ export function FinderStudy() {
           </div>
         </div>
         <Segmented className="w-full" size="sm" value={kind} onChange={setKind} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
-        {options && <Segmented className="w-full" size="sm" value={index} onChange={(k) => { setIndex(k); saveIndex(k); }} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />}
         <Segmented className="w-full" size="sm" value={what} onChange={setWhat} options={WHAT} />
         {what !== 'new' && <StartFromSelect kind={kind} value={first} onChange={setFirst} />}
         <div className="space-y-1">
@@ -208,7 +207,7 @@ export function FinderStudy() {
           {r.simulated && <Card className="border-warn p-3 text-xs text-warn">This was made on the sample feed, whose history is random, so the numbers mean nothing. Log in to Upstox and run it again.</Card>}
           <Card className="flex items-center justify-between gap-2 p-3 text-xs">
             <p className="text-muted">
-              {r.params?.index === 'SENSEX' ? 'Sensex · ' : ''}
+              
               {r.period.from} to {r.period.to} · {r.period.days} trading days
               {r.pairs?.tried ? ` · ${r.pairs.tried} tried` : ''}
               {r.pricing?.mode === 'real' ? ` · real prices: ${r.pricing.priced} priced, ${r.pricing.skipped} skipped` : ''}

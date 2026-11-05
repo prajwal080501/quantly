@@ -8,10 +8,9 @@ import { formatPrice, pnlClass } from '../../lib/format.js';
 import { Badge, Card, Segmented } from '../ui.jsx';
 import { resultLine, resultTone } from '../../lib/results.js';
 import { STOP_ATRS, STOP_MODES, STOP_POINTS } from '../../lib/stops.js';
-import { indexWords } from '../../lib/indexes.js';
 
 const FIELDS = [
-  { key: 'budget', label: 'Money for options, Nifty and Sensex together (₹)', step: 1000, min: 5000, max: 100000000 },
+  { key: 'budget', label: 'Money for options (₹)', step: 1000, min: 5000, max: 100000000 },
   { key: 'maxLots', label: 'Most lots in one trade', step: 1, min: 1, max: 20 },
   { key: 'maxOpen', label: 'Most trades open at once', step: 1, min: 1, max: 3 },
   { key: 'maxTrades', label: 'Most trades a day', step: 1, min: 1, max: 10 },
@@ -53,27 +52,6 @@ export function OptionsEntries({ data, reload }) {
   const triggers = [s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations'].filter(Boolean);
   return (
     <div className="space-y-3">
-      <div className="space-y-2">
-        <h4 className="text-xs font-semibold">Which index</h4>
-        <p className="text-[11px] leading-snug text-muted">The bot reads the chart of each index you switch on and buys that index's option. Nifty and Sensex usually move together, so they share one budget, one daily loss limit and one trade count.</p>
-        {data.indexChoices.map((c) => {
-          const on = s.indexes.includes(c.key);
-          return (
-            <div key={c.key} className="flex items-center justify-between gap-3 text-xs">
-              <span>{c.name}</span>
-              <Switch on={on} disabled={busy || (on && s.indexes.length === 1)} label={c.name} onClick={() => save({ indexes: on ? s.indexes.filter((k) => k !== c.key) : [...s.indexes, c.key] })} />
-            </div>
-          );
-        })}
-        {s.indexes.length > 1 && (
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] leading-snug text-muted">
-              <b className="text-fg">Take the signal on both.</b> {s.mirror ? 'A call on the Nifty and a call on the Sensex can be open together. This doubles the same bet, so set "most trades open at once" to 2 in Limits.' : 'Off: one call and one put at a time, whichever index shows the signal first.'}
-            </p>
-            <Switch on={s.mirror} disabled={busy} label="Take the signal on both indexes" onClick={() => save({ mirror: !s.mirror })} />
-          </div>
-        )}
-      </div>
       <div className="space-y-2">
         <h4 className="text-xs font-semibold">What triggers a buy</h4>
         <p className="text-[11px] leading-snug text-muted">Switch on what you trust. The result beside each pattern is from your latest Options study ({study.data?.result ? `${study.data.result.period.days} days` : 'run one under Studies'}), so you can see which ones pay before you switch them on.</p>
@@ -221,7 +199,7 @@ export function OptionsAutoCard({ data, reload }) {
         </button>
       </div>
       <p className="text-[11px] leading-snug text-muted">
-        Buys one {indexWords(s.indexes)} at-the-money call or put when a chart pattern or one of your combinations turns true. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
+        Buys one Nifty at-the-money call or put when a chart pattern or one of your combinations turns true. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
       </p>
       <p className="text-[11px] leading-snug text-muted">
         Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}. Change this in Account &gt; Entries.

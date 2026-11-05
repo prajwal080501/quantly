@@ -7,7 +7,7 @@ import { useStudy } from '../../lib/useStudy.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
 import { istStamp } from '../../lib/study.js';
 import { FAMILY_LABEL, BAND_CHOICES, movedBandWords, isApplied, skippedWords, measureLine } from '../../lib/movedTest.js';
-import { INDEXES, loadIndex, saveIndex } from '../../lib/indexes.js';
+import { loadIndex, saveIndex } from '../../lib/indexes.js';
 import { Badge, Card, Fold, Segmented, Skeleton } from '../ui.jsx';
 
 const EXIT = { LOCK: 'ladder', STOP: 'stop', HARD: 'hard stop', EOD: 'close time', TRAIL: 'trail', BREAKEVEN: 'break-even' };
@@ -87,7 +87,6 @@ export function MovedTester() {
         <p className="text-[11px] leading-snug text-muted">
           Do late entries lose? This takes the entries your auto trader would have taken on the real option prices saved for the last 30 days, and replays them again with a limit on how far the market had <b className="text-fg">already run before the buy</b>: the index from its 30 or 60-minute low, since the open, from the day average, its RSI, the option premium from its own low, and a last time for a new trade. Each limit is <b className="text-fg">picked on the older two thirds of the days</b> and only recommended if it also did better on the <b className="text-fg">newest third</b>, which it never saw. Nothing changes until you tap Use.
         </p>
-        <Segmented size="sm" value={index} onChange={pickIndex} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />
         <button type="button" className="btn btn-primary w-full" disabled={running} onClick={() => run(30, { index })}>
           <Play className="h-4 w-4" /> {running ? state?.status?.step || 'Running…' : 'Test on the saved prices'}
         </button>
@@ -108,7 +107,7 @@ export function MovedTester() {
       {r && off && (
         <>
           <p className="px-1 text-[11px] text-muted">
-            {r.params.index === 'SENSEX' ? 'Sensex' : 'Nifty'} · {r.period.from} to {r.period.to} ({r.period.days} days with real prices{r.period.checkFrom ? `; older ${r.period.fitDays} days pick, newest ${r.period.checkDays} from ${r.period.checkFrom} check` : ''}) · {r.signals} entry signals · run {istStamp(Date.parse(r.generatedAt) / 1000)}
+            Nifty · {r.period.from} to {r.period.to} ({r.period.days} days with real prices{r.period.checkFrom ? `; older ${r.period.fitDays} days pick, newest ${r.period.checkDays} from ${r.period.checkFrom} check` : ''}) · {r.signals} entry signals · run {istStamp(Date.parse(r.generatedAt) / 1000)}
           </p>
 
           <Card className="space-y-2 p-3">

@@ -18,14 +18,12 @@ const gauss = () => {
  * Every number it produces is synthetic and the UI labels it SIMULATED.
  */
 export class MockProvider extends BaseProvider {
-  constructor({ intervalMs = 1000, now = () => Date.now(), lotSize = DEFAULT_LOT_SIZE, sensexLotSize = INDEXES.SENSEX.lot, expiryWeekday, sensexExpiryWeekday } = {}) {
+  constructor({ intervalMs = 1000, now = () => Date.now(), lotSize = DEFAULT_LOT_SIZE, expiryWeekday } = {}) {
     super();
     this.intervalMs = intervalMs;
     this.now = now;
     this.lotSize = lotSize;
-    this.sensexLotSize = sensexLotSize;
     this.expiryWeekday = expiryWeekday;
-    this.sensexExpiryWeekday = sensexExpiryWeekday;
     this.iv = 0.14; // implied volatility the simulated premiums are priced with; it drifts a little
     this.optionState = new Map(); // option symbol -> { ltp, open, high, low, prevClose }
     this.state = new Map();
@@ -63,7 +61,7 @@ export class MockProvider extends BaseProvider {
   }
 
   async getOptionExpiries(index = 'NIFTY') {
-    return weeklyExpiries(new Date(this.now()), { count: 3, weekday: (index === 'SENSEX' ? this.sensexExpiryWeekday : this.expiryWeekday) ?? INDEXES[index]?.expiryWeekday });
+    return weeklyExpiries(new Date(this.now()), { count: 3, weekday: this.expiryWeekday ?? INDEXES[index]?.expiryWeekday });
   }
 
   async getOptionContracts(expiry, index = 'NIFTY') {
@@ -75,7 +73,7 @@ export class MockProvider extends BaseProvider {
     for (let k = -10; k <= 10; k++) {
       for (const type of ['CE', 'PE']) {
         const strike = mid + k * idx.strikeStep;
-        out.push({ symbol: optionSymbol({ expiry, strike, type, index: idx.key }), strike, type, expiry, lotSize: idx.key === 'SENSEX' ? this.sensexLotSize : this.lotSize });
+        out.push({ symbol: optionSymbol({ expiry, strike, type, index: idx.key }), strike, type, expiry, lotSize: this.lotSize });
       }
     }
     return out;

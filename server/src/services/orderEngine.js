@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
 import { rulesFor } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
-import { isOptionSymbol, parseOptionSymbol, lotSizeOf } from '../options/symbols.js';
+import { isOptionSymbol, parseOptionSymbol, lotSizeOf, isIndexKey } from '../options/symbols.js';
 import { getMarketStatus } from '../market/marketHours.js';
 import { LOCK_CHARGES_MULT, calculateCharges, roundTripCharges, splitCharges } from './charges.js';
 import { getFunds, adjustBalance, resetAccount } from './walletService.js';
@@ -442,7 +442,7 @@ export class OrderEngine extends EventEmitter {
     const qty = Number(input.qty);
 
     const option = isOptionSymbol(symbol);
-    if (!isTradable(symbol) && !option) throw badRequest('Only Nifty 50 stocks and Nifty or Sensex index options can be traded', 'INVALID_SYMBOL');
+    if (!isTradable(symbol) && !option) throw badRequest('Only Nifty 50 stocks and Nifty index options can be traded', 'INVALID_SYMBOL');
     if (!['BUY', 'SELL'].includes(side)) throw badRequest('side must be BUY or SELL');
     if (!['MARKET', 'LIMIT'].includes(orderType)) throw badRequest('orderType must be MARKET or LIMIT');
     if (!Number.isInteger(qty) || qty < 1) throw badRequest('Quantity must be a whole number of at least 1', 'INVALID_QTY');
@@ -555,8 +555,15 @@ export class OrderEngine extends EventEmitter {
   }
 
   async #marketExit(pos, role) {
-    const ltp = this.market.getLtp(pos.symbol);
-    if (!ltp) throw unavailable(`No live price for ${pos.symbol}`, 'NO_PRICE');
+    let ltp = this.market.getLtp(pos.symbol);
+    if (!ltp) {
+      // Sensex options are no longer in the feed, so a Sensex trade left open from before has no live price. Close it at the last price
+      // this app saw for it (its latest fill, else the price it was bought at) rather than leaving it stuck open.
+      const o = parseOptionSymbol(pos.symbol);
+      if (!o || isIndexKey(o.index)) throw unavailable(`No live price for ${pos.symbol}`, 'NO_PRICE');
+      ltp = (await Trade.findOne({ user: pos.user, symbol: pos.symbol }).sort({ createdAt: -1 }).lean())?.price ?? pos.avgPrice;
+      logger.warn(`${pos.symbol} is no longer in the feed: closing at last known price ${ltp}`);
+    }
     // Cancel resting SL/target legs first so they cannot fire after the exit.
     for (const leg of await Order.find({ user: pos.user, symbol: pos.symbol, status: 'OPEN', role: { $in: EXIT_ROLES } })) {
       await this.#cancel(leg, role === 'SQUAREOFF' ? 'Cancelled by square-off' : 'Cancelled on exit');

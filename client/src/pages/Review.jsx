@@ -6,7 +6,7 @@ import { formatPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { VERDICT, pctText, shiftDay, takeaways } from '../lib/review.js';
 import { afterText, checksOf, dayTotals, exitLine, loadSeen, loadWatch, moveLines, offerCombos, saveSeen, saveWatch, shortLabel, sideWord, skipText, watched, whyText } from '../lib/patternReview.js';
 import { dayType, legCount, storyLines } from '../lib/dayStory.js';
-import { INDEXES, indexOf, loadIndex, saveIndex } from '../lib/indexes.js';
+import { indexOf, loadIndex, saveIndex } from '../lib/indexes.js';
 import { stopRuleText, whatIfText } from '../lib/stops.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
@@ -308,7 +308,7 @@ function SignalDetail({ s, pattern, exits, name = 'Nifty' }) {
   );
 }
 
-/** Pick the patterns and combinations you want to watch, see where each formed on the Nifty or Sensex chart, and what a one-lot option buy at that moment would have done. */
+/** Pick the patterns and combinations you want to watch, see where each formed on the Nifty chart, and what a one-lot option buy at that moment would have done. */
 function PatternsTab({ day }) {
   const [index, setIndex] = useState(loadIndex);
   const idx = indexOf(index);
@@ -332,26 +332,14 @@ function PatternsTab({ day }) {
   const watchAll = useMemo(() => (trial.id && trial.add.length ? [...watch, `combo:${trial.id}`, `trial:${trial.id}`] : watch), [watch, trial]);
   const chosen = useMemo(() => watched(data?.signals ?? [], watchAll), [data, watchAll]);
   const totals = useMemo(() => dayTotals(chosen), [chosen]);
-  const indexPicker = (
-    <Segmented
-      className="w-full"
-      size="sm"
-      value={index}
-      onChange={(k) => {
-        setIndex(k);
-        saveIndex(k);
-        setSelected(null);
-      }}
-      options={INDEXES.map((i) => ({ value: i.key, label: i.short }))}
-    />
-  );
+  const indexPicker = null;
   if ((loading && !data) || (data && data.index && data.index !== index)) return <div className="space-y-3">{indexPicker}<Skeleton className="h-72 w-full" /></div>;
   if (error && !data) return <EmptyState title="Could not load this day">{error.message}</EmptyState>;
   if (!data.candles.length) {
     return (
       <div className="space-y-3">
         {indexPicker}
-        <EmptyState title={`No ${idx.short} minute chart for this day`}>It may be a holiday, or older than the broker keeps minute candles{index === 'SENSEX' ? '. For the Sensex, press Download once in Research, Data so its candles are saved' : ''}.</EmptyState>
+        <EmptyState title={`No ${idx.short} minute chart for this day`}>It may be a holiday, or older than the broker keeps minute candles.</EmptyState>
       </div>
     );
   }

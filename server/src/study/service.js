@@ -67,7 +67,7 @@ export class StudyService {
     const idx = INDEXES[index];
     job.step = `Reading ${idx.short} candles`;
     const nifty1 = await this.#range(idx.symbol, 1, calendar);
-    if (nifty1.length < 400) throw new Error(`Not enough ${idx.short} history came back. On Upstox, log in again (the token lasts one day), press Download in Account > Studies > Data${index === 'SENSEX' ? ' (Sensex is downloaded with the rest the first time after this update)' : ''}, and retry.`);
+    if (nifty1.length < 400) throw new Error(`Not enough ${idx.short} history came back. On Upstox, log in again (the token lasts one day), press Download in Account > Studies > Data, and retry.`);
     return { nifty1, calendar };
   }
 
@@ -160,8 +160,7 @@ export class StudyService {
     const { nifty1, stocks5, params, prices } = await this.#liveReplay(userId, job, { index, days });
     const result = await runLadderStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     result.pricing = prices.describe();
-    const own = index === 'SENSEX' && (await TradeDefaults.findOne({ user: userId }, 'sensex.own').lean())?.sensex?.own;
-    result.applyKey = own ? 'sensex' : 'options'; // where "Use this ladder" saves it
+    result.applyKey = 'options'; // where "Use this ladder" saves it
     result.lockOn = params.lockOn;
     await this.#save(userId, 'ladder', result);
   }
@@ -169,7 +168,7 @@ export class StudyService {
   /** The "already moved" tester: the live entries on the saved real option prices, with each limit on how far the index (or the premium) had already run. */
   async #runMoved(userId, job, { index = DEFAULT_INDEX, days = 30 }) {
     const { nifty1, stocks5, params, prices, settings } = await this.#liveReplay(userId, job, { index, days });
-    params.entryKey = index === 'SENSEX' && settings.sensexOwn === true ? 'sensexEntryTo' : 'entryTo'; // where "No new trade from" is saved
+    params.entryKey = 'entryTo'; // where "No new trade from" is saved
     const result = await runMovedStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     result.pricing = prices.describe();
     result.now = { moved: movedOf(settings), chase: chaseOf(settings), entryTo: params.entryTo };

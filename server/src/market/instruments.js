@@ -59,7 +59,6 @@ export const NIFTY50 = [
 export const INDICES = [
   { symbol: 'NIFTY 50', name: 'Nifty 50', upstoxKey: 'NSE_INDEX|Nifty 50', seed: 25000 },
   { symbol: 'NIFTY BANK', name: 'Bank Nifty', upstoxKey: 'NSE_INDEX|Nifty Bank', seed: 56000 },
-  { symbol: 'SENSEX', name: 'Sensex', upstoxKey: 'BSE_INDEX|SENSEX', seed: 82000 },
 ];
 
 const bySymbol = new Map(NIFTY50.map((s) => [s.symbol, s]));

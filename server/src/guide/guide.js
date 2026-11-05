@@ -13,7 +13,7 @@ Paper money only. Nothing here places a real order. Not investment advice.
 |---|---|
 | Stocks | Your watchlist, the scanner ideas and today's strip. Tap a stock for its chart, order sheet and signal. |
 | Scanner | The share scanner and the auto share trader: today's ideas, what was bought, and how each setup has done. |
-| Options | Nifty and Sensex options: the live chart read, your auto trader, open trades and the log. |
+| Options | Nifty options: the live chart read, your auto trader, open trades and the log. |
 | News | The morning news calls against what the stocks did. |
 | Trades | Open positions, with live profit and loss. |
 | Account | Your money, the rules (Limits, Entries), Research (studies, Combination Lab, Finder, saved data), Day review, the P&L charts and this guide. |
@@ -27,7 +27,7 @@ Paper money only. Nothing here places a real order. Not investment advice.
 
 ## 3. How an options entry happens
 
-1. Every 15 seconds the app reads the Nifty (and Sensex) 1-minute candles and builds 5-minute bars.
+1. Every 15 seconds the app reads the Nifty 1-minute candles and builds 5-minute bars.
 2. When a 5-minute bar closes, it checks your chart patterns and your combinations (Account > Entries). An entry is acted on only if the bar closed less than 4 minutes ago, and only once per bar.
 3. A signal becomes a trade only if the limits allow it:
    - the entry hours (Account > Limits) and the trades-a-day cap are not used up
@@ -51,7 +51,6 @@ Paper money only. Nothing here places a real order. Not investment advice.
 A study replays past candles through your rules. It changes nothing live.
 
 **To run the Options study:** Account > Research > Options study.
-1. Pick Nifty or Sensex.
 2. Pick the days. With real prices on, "10d" means the newest 10 days that have saved option prices.
 3. Keep "Use the real option prices" on. Without saved prices it falls back to an estimate and says so.
 4. Keep "Trade like the live bot" on, so the study obeys the same pauses, one call and one put at a time, the daily cap and the loss limit, and buys one minute after the signal bar.
@@ -77,7 +76,7 @@ Account > Entries > My combinations > New combination.
 2. **Pick checks** (up to 20). Use search or the groups. Each check has a one-line description under its name. The dictionary at the end lists all of them.
 3. **Rule:** all together, or at least N of them.
 4. **Event window:** a "cross" or a "break" counts for this many bars (1 to 6, default 3).
-5. **Index:** Nifty, Sensex or both. **Side:** calls and puts, calls only, or puts only. A combination built from bullish checks should usually be calls only: its put twin is the mirror image and can buy puts on a rising day.
+5. **Index:** Nifty. **Side:** calls and puts, calls only, or puts only. A combination built from bullish checks should usually be calls only: its put twin is the mirror image and can buy puts on a rising day.
 6. **Stop and exits:** its own stop, ladder, trail and break-even, or the shared ones.
 7. Save, then test it in Account > Research > Combination Lab before you switch it on.
 

@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { MAX_COMBOS } from '../../lib/autoFind.js';
-import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, roomSteps, stopWord, indexWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
+import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, roomSteps, stopWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 import { InfoButton } from '../CheckInfo.jsx';
@@ -167,12 +167,6 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
       )}
       {kind === 'options' && (
         <div className="space-y-1.5">
-          <div className="text-[11px] text-muted">Trades on. The Nifty and the Sensex move differently, so a combination can belong to one of them.</div>
-          <Segmented className="w-full" size="sm" value={combo.index || ''} onChange={(v) => set({ index: v })} options={[{ value: '', label: 'Both' }, { value: 'NIFTY', label: 'Nifty' }, { value: 'SENSEX', label: 'Sensex' }]} />
-        </div>
-      )}
-      {kind === 'options' && (
-        <div className="space-y-1.5">
           <div className="text-[11px] text-muted">Buys. A combination built from bullish checks should usually be calls only: its put twin is the mirror image and has lost money on rising days.</div>
           <Segmented className="w-full" size="sm" value={combo.side || ''} onChange={(v) => set({ side: v })} options={[{ value: '', label: 'Calls and puts' }, { value: 'CE', label: 'Calls only' }, { value: 'PE', label: 'Puts only' }]} />
         </div>
@@ -313,7 +307,7 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
                       </div>
                       <Switch on={c.on} disabled={busy} label={`Use ${c.name}`} onClick={() => toggleOn(c.id)} />
                     </div>
-                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{c.also?.length ? ` · and must also hold: ${c.also.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}` : ''}{kind === 'options' && c.index ? ` · ${indexWord(c)}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
+                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{c.also?.length ? ` · and must also hold: ${c.also.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
                     {c.benchedOn && !c.on && <p className="rounded-lg bg-warn/15 px-2 py-1 text-[11px] leading-snug">Switched off by itself on {c.benchedOn} after losing trades in a row (Account &gt; Limits). Tap its trades in Options &gt; History to replay them before turning it back on.</p>}
                     {kind === 'options' && !c.on && <p className="text-[11px] leading-snug text-muted">Off: the bot does not buy on it, but studies still try it, and one "together" row runs every combination as a set.</p>}
                     <div className="flex items-center justify-end gap-2">

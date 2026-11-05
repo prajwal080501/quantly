@@ -17,7 +17,7 @@ const readShown = () => {
 };
 
 /**
- * The chart of the chosen index (Nifty 50 or Sensex) that every option trade on it is read from. Dashed lines mark the chart stop a Call (CE)
+ * The chart of the chosen index (Nifty 50) that every option trade on it is read from. Dashed lines mark the chart stop a Call (CE)
  * or a Put (PE) would use, so you can see where the trade is wrong before you buy it.
  */
 export function NiftyChart({ index = 'NIFTY' }) {

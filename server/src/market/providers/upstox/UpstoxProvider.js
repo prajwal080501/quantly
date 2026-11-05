@@ -37,7 +37,7 @@ export class UpstoxProvider extends BaseProvider {
     this.keyBySymbol = new Map();
     this.symbolByKey = new Map();
     this.subscribed = new Set();
-    this.optionContracts = new Map(); // index key ('NIFTY' | 'SENSEX') -> { at, rows } of its option contract list, refreshed every half hour
+    this.optionContracts = new Map(); // index key ('NIFTY') -> { at, rows } of its option contract list, refreshed every half hour
     this.ws = null;
     this.FeedResponse = null;
     this.retry = 0;
@@ -224,7 +224,7 @@ export class UpstoxProvider extends BaseProvider {
   }
 
   /**
-   * Index option contracts (Nifty or Sensex) from GET /v2/option/contract (every listed expiry), normalised to the app's names.
+   * Index option contracts (Nifty) from GET /v2/option/contract (every listed expiry), normalised to the app's names.
    * The field names follow Upstox's documented response (expiry, strike_price, instrument_type, lot_size, instrument_key);
    * anything unexpected is skipped rather than guessed. Not yet exercised against the live API, so check the first run.
    */

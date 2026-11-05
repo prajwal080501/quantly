@@ -42,7 +42,7 @@ test('the entry window defaults to 09:15-15:15, takes the user\'s hours and igno
 
 test('the entry hours are saved in Account > Limits, must be 15 minutes apart, and default to today\'s hours', async () => {
   const first = (await api().get('/api/options').set(user.auth).expect(200)).body.settings;
-  assert.deepEqual([first.entryFrom, first.entryTo, first.sensexOwn], [555, 915, false]);
+  assert.deepEqual([first.entryFrom, first.entryTo], [555, 915]);
   const saved = (await api().put('/api/options').set(user.auth).send({ entryFrom: 585, entryTo: 870 }).expect(200)).body.settings;
   assert.deepEqual([saved.entryFrom, saved.entryTo], [585, 870]);
   await api().put('/api/options').set(user.auth).send({ entryFrom: 600, entryTo: 605 }).expect(400);
@@ -51,76 +51,16 @@ test('the entry hours are saved in Account > Limits, must be 15 minutes apart, a
   await api().put('/api/options').set(user.auth).send({ entryTo: 1000 }).expect(400);
 });
 
-test('a combination can belong to one index; with none it is for both, and studies include switched-off ones', () => {
+test('a combination that was Sensex-only is kept but switched off; studies include switched-off ones', () => {
   const list = normalizeCombos([
     { name: 'Both', conds: ['rsiAbove50'] },
     { name: 'Sensex only', conds: ['emaStack'], index: 'SENSEX' },
     { name: 'Off for live', conds: ['macdZero'], on: false },
-    { name: 'Odd', conds: ['rsiAbove50'], index: 'BANKNIFTY' },
   ]);
   assert.equal(list[0].index, undefined);
-  assert.equal(list[1].index, 'SENSEX');
-  assert.equal(list[3].index, undefined, 'an unknown index is dropped');
-  assert.equal(comboFitsIndex(list[1], 'NIFTY'), false);
-  assert.equal(comboFitsIndex(list[1], 'SENSEX'), true);
-  assert.equal(comboFitsIndex(list[0], 'SENSEX'), true);
-  assert.deepEqual(studyCombos(list, 'NIFTY').map((c) => c.name), ['Both', 'Off for live', 'Odd']);
-  assert.deepEqual(studyCombos(list, 'SENSEX').map((c) => c.name), ['Both', 'Sensex only', 'Off for live', 'Odd']);
-});
-
-test('Sensex uses the Nifty setup until its own is switched on, for the stop and the profit ladder', async () => {
-  assert.deepEqual(stopRuleOf({ patternStopMode: 'fixed', patternStopPoints: 40, sensexOwn: false, sensexStopPoints: 150 }, 'SENSEX'), { mode: 'fixed', k: 2, points: 40 });
-  assert.deepEqual(stopRuleOf({ patternStopMode: 'fixed', patternStopPoints: 40, sensexOwn: true, sensexStopMode: 'atr', sensexStopAtr: 1.5, sensexStopPoints: 150 }, 'SENSEX'), { mode: 'atr', k: 1.5, points: 150 });
-  assert.equal(stopRuleOf({ patternStopMode: 'fixed', patternStopPoints: 40, sensexOwn: true }, 'NIFTY').points, 40);
-
-  const d0 = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body;
-  assert.equal(d0.sensex.own, false);
-  assert.deepEqual(d0.sensex.steps, d0.options.steps, 'starts as a copy of the options rules');
-
-  const put = (await api().put('/api/trade-defaults').set(user.auth).send({ options: { stopLoss: 1500, steps: [{ at: 1000, keep: 750 }] }, sensex: { own: true, stopLoss: 2500, steps: [{ at: 2000, keep: 1500 }, { at: 4000, keep: 3500 }] } }).expect(200)).body;
-  assert.equal(put.sensex.own, true);
-  assert.equal(put.sensex.stopLoss, 2500);
-  assert.deepEqual(put.options.steps, [{ at: 1000, keep: 750 }], 'Nifty is not touched');
-
-  const row = await TradeDefaults.findOne({}).lean();
-  assert.equal(rulesFor(row, 'OPT', { index: 'SENSEX' }).stopLoss, 2500);
-  assert.equal(rulesFor(row, 'OPT', { index: 'NIFTY' }).stopLoss, 1500);
-  assert.equal(rulesFor(row, 'OPT').stopLoss, 1500);
-  assert.deepEqual(rulesFor(row, 'OPT', { index: 'SENSEX' }).steps.map((s) => s.at), [2000, 4000]);
-
-  const back = (await api().put('/api/trade-defaults').set(user.auth).send({ sensex: { own: false } }).expect(200)).body;
-  assert.equal(rulesFor({ options: { ...back.options }, sensex: { ...back.sensex } }, 'OPT', { index: 'SENSEX' }).stopLoss, 1500);
-  await api().put('/api/trade-defaults').set(user.auth).send({ sensex: { own: true, steps: [{ at: 100, keep: 200 }] } }).expect(400);
-});
-
-test('Sensex stop choices are saved and validated', async () => {
-  const saved = (await api().put('/api/options').set(user.auth).send({ sensexOwn: true, sensexStopMode: 'fixed', sensexStopPoints: 200 }).expect(200)).body.settings;
-  assert.deepEqual([saved.sensexOwn, saved.sensexStopMode, saved.sensexStopPoints], [true, 'fixed', 200]);
-  await api().put('/api/options').set(user.auth).send({ sensexStopPoints: 5 }).expect(400);
-  await api().put('/api/options').set(user.auth).send({ sensexStopMode: 'tight' }).expect(400);
-});
-
-test('with its own setup on, the Sensex takes its own trail, break-even, hours, lots, patterns and side; unset values keep the Nifty ones', async () => {
-  const { forIndex } = await import('../src/options/indexSettings.js');
-  const { trailOf, breakEvenOf } = await import('../src/study/simulate.js');
-  const base = { trailMode: 'points', trailPoints: 40, trailStart: 40, breakEvenPoints: 15, entryFrom: 555, entryTo: 915, maxLots: 2, patterns: ['breakout'] };
-  assert.equal(forIndex(base, 'SENSEX'), base, 'own setup off: unchanged');
-  assert.equal(forIndex({ ...base, sensexOwn: true, sensexTrailMode: 'off' }, 'NIFTY').trailMode, 'points');
-  const same = forIndex({ ...base, sensexOwn: true }, 'SENSEX');
-  assert.deepEqual([same.trailPoints, same.breakEvenPoints, same.maxLots, same.sideOnly], [40, 15, 2, null]);
-  const own = forIndex({ ...base, sensexOwn: true, sensexTrailMode: 'points', sensexTrailPoints: 130, sensexTrailStart: 130, sensexBreakEven: 50, sensexEntryFrom: 600, sensexMaxLots: 1, sensexPatterns: ['insideBar'], sensexSide: 'CE' }, 'SENSEX');
-  assert.deepEqual(trailOf(own), { points: 130, start: 130 });
-  assert.equal(breakEvenOf(own), 50);
-  assert.deepEqual([own.entryFrom, own.entryTo, own.maxLots, own.patterns, own.sideOnly], [600, 915, 1, ['insideBar'], 'CE']);
-  assert.equal(breakEvenOf(forIndex({ ...base, sensexOwn: true, sensexBreakEven: 0 }, 'SENSEX')), 0, '0 means off, not "same as Nifty"');
-  assert.equal(forIndex({ ...base, sensexOwn: true, sensexTrailMode: 'off' }, 'SENSEX').trailMode, 'off');
-
-  const sx = (await api().put('/api/options').set(user.auth).send({ sensexOwn: true, sensexTrailMode: 'off', sensexBreakEven: 50, sensexSide: 'CE', sensexPatterns: ['breakout'] }).expect(200)).body.settings;
-  assert.deepEqual([sx.sensexTrailMode, sx.sensexBreakEven, sx.sensexSide, sx.sensexPatterns, sx.sensexMaxLots], ['off', 50, 'CE', ['breakout'], null]);
-  const reset = (await api().put('/api/options').set(user.auth).send({ sensexTrailMode: null, sensexSide: null }).expect(200)).body.settings;
-  assert.deepEqual([reset.sensexTrailMode, reset.sensexSide], [null, null]);
-  await api().put('/api/options').set(user.auth).send({ sensexSide: 'BOTH' }).expect(400);
-  await api().put('/api/options').set(user.auth).send({ sensexEntryFrom: 600, sensexEntryTo: 605 }).expect(400);
+  assert.equal(list[1].on, false, 'the Sensex is gone, so it must not trade the Nifty');
+  assert.equal(comboFitsIndex(list[0], 'NIFTY'), true);
+  assert.deepEqual(studyCombos(list, 'NIFTY').map((c) => c.name), ['Both', 'Sensex only', 'Off for live']);
 });
 
 test('a study with a side lock trades only that side', async () => {

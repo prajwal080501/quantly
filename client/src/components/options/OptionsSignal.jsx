@@ -117,7 +117,7 @@ export function OptionsSignal({ index = 'NIFTY', onBought }) {
   }
 
   if (!data || (data.index && data.index !== index)) return <Skeleton className="h-64 w-full" />;
-  if (!data.ready) return <Card className="p-4 text-sm text-muted">The {idx.short} chart is still loading. Give it a minute after the server starts{index === 'SENSEX' ? ' (the Sensex chart needs the Sensex feed to be running)' : ''}.</Card>;
+  if (!data.ready) return <Card className="p-4 text-sm text-muted">The {idx.short} chart is still loading. Give it a minute after the server starts.</Card>;
   return (
     <div className="space-y-3">
       <Card className="p-3">

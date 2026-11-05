@@ -45,7 +45,7 @@ export function activeIndexes(settings) {
 }
 
 /**
- * Paper options trader for Nifty 50 and Sensex index options. Every 15 seconds it reads the chart of each index the user trades; when a chart
+ * Paper options trader for Nifty 50 index options. Every 15 seconds it reads the chart of each index the user trades; when a chart
  * pattern or one of the user's combinations turns true it buys one at-the-money contract, sized so a stop at the chart level loses no more than the user's limit.
  * It sells when a 1-minute candle closes beyond that level; the profit lock is the user's rule from the Account tab, which the order
  * engine puts on every new position. It closes everything at the 15:15 square-off.
@@ -142,7 +142,7 @@ export class OptionTrader {
     return out;
   }
 
-  /** The chart read of one index ('NIFTY' or 'SENSEX'), both sides, as of now. */
+  /** The chart read of one index ('NIFTY'), both sides, as of now. */
   async read(index = DEFAULT_INDEX) {
     const symbol = INDEXES[index].symbol;
     const [c1, daily] = await Promise.all([this.market.getCandles(symbol, '1m'), this.market.getDaily(symbol).catch(() => [])]);
@@ -180,7 +180,7 @@ export class OptionTrader {
         try {
           if (this.config.enforceMarketHours && nowMin >= (await loadRules(s.user, 'OPT')).exitMin) continue; // past the time you close: no new trade
           for (const index of activeIndexes(s)) {
-            const si = forIndex(s, index); // the Sensex may have a setup of its own
+            const si = forIndex(s, index);
             const modes = entryModes(si);
             const read = await readOf(index);
             if (modes.patterns.length) {
@@ -306,7 +306,7 @@ export class OptionTrader {
   async #actOn(settings, read, hits, last, labelOf, { minScore = 0 } = {}) {
     let result = { skipped: 'no pattern' };
     for (const hit of hits) {
-      if (settings.sideOnly && hit.side !== settings.sideOnly) continue; // the Sensex setup takes calls only or puts only
+      if (settings.sideOnly && hit.side !== settings.sideOnly) continue; // calls only or puts only
       const seen = `${settings.user}|${read.index}|${hit.technique}|${last.time}`;
       if (this.patternSeen.has(seen)) continue;
       if (this.patternSeen.size > 500) this.patternSeen.clear();

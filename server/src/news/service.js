@@ -12,7 +12,7 @@ const KEEP_MS = 72 * 60 * 60 * 1000;
 
 const googleNews = (q) => `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
 const MARKET_FEEDS = [
-  googleNews('Nifty OR Sensex OR "stock market" India when:1d'),
+  googleNews('Nifty OR "stock market" India when:1d'),
   googleNews('RBI OR "Union Budget" OR "FII" India markets when:1d'),
 ];
 

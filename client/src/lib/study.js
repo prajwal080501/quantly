@@ -47,7 +47,7 @@ export function pricingText(r) {
 export function studyText(r) {
   if (!r) return '';
   const lines = [
-    `${r.params.index === 'SENSEX' ? 'Sensex options' : 'Options'} study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, ${pricingText(r)}.`,
+    `Options study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, ${pricingText(r)}.`,
     `${exitText(r.params)}; ${stopRuleText(r.params.stopRule)}${r.params.trail ? `; ${trailText(r.params.trail)}` : ''}${r.params.breakEven ? `; ${breakEvenText(r.params.breakEven)}` : ''}; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
     '',
   ];
