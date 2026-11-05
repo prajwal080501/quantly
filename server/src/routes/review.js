@@ -34,7 +34,7 @@ export function reviewRoutes({ review }) {
     res.json({ ...(await review.stock(req.userId, symbol, req.valid.day ?? review.today)), disclaimer: REVIEW_DISCLAIMER });
   });
 
-  // The Nifty (or Sensex, ?index=SENSEX) chart of one day with every pattern and combination that formed on it and what a one-lot option buy at each would have done.
+  // The Nifty chart of one day with every pattern and combination that formed on it and what a one-lot option buy at each would have done.
   router.get('/patterns', validate(patternsQuery, 'query'), async (req, res) => {
     const day = req.valid.day ?? review.today;
     res.json({ ...(await review.patterns(req.userId, day, req.valid.index, (req.valid.checks ?? '').split(',').map((k) => k.trim()).filter(Boolean).slice(0, 40), { trial: parseTrial(req.valid.trial), real: req.valid.real === '1' })), disclaimer: REVIEW_DISCLAIMER });

@@ -116,7 +116,7 @@ export function explainCondition(cond) {
             : null,
     note: pattern
       ? 'In a combination the stop is the pattern level above. On its own (as a pattern entry) the bot takes it at the close of the bar it forms on.'
-      : 'All checks run on the Nifty (or Sensex) 5-minute chart, on closed bars only, so nothing peeks at the future. The entry is taken at the close of the bar where the whole combination first holds.',
+      : 'All checks run on the Nifty 5-minute chart, on closed bars only, so nothing peeks at the future. The entry is taken at the close of the bar where the whole combination first holds.',
   };
   return out;
 }

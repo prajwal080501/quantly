@@ -71,7 +71,7 @@ app.get('/api/auth/me', (_q, r) => r.json({ user }));
 app.use('/api/market', marketRoutes({ market }));
 app.use('/api/options', optionRoutes({ optionTrader: { todaySummary: async () => today, read: async () => ({ ready: false }) } }));
 app.use('/api/auto', autoRoutes({ autoTrader: { todaySummary: async () => today } }));
-app.get('/api/trade-defaults', (_q, r) => r.json({ shares: rulesFor(null, 'EQ'), options: rulesFor(null, 'OPT'), sensex: { own: false, ...rulesFor(null, 'OPT') } }));
+app.get('/api/trade-defaults', (_q, r) => r.json({ shares: rulesFor(null, 'EQ'), options: rulesFor(null, 'OPT') }));
 app.get('/api/wallet', (_q, r) => r.json({ balance: 1038420, startingBalance: 1000000, usedMargin: 0, blockedMargin: 0, available: 1038420, realizedPnl: 38420, resetCount: 0, lastResetAt: null }));
 app.get('/api/dashboard', (_q, r) => {
   const t = demoPnl.totals;

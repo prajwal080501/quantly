@@ -17,7 +17,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), index: z.enum(['NIFTY', 'SENSEX']).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -27,7 +27,7 @@ export function normalizeCombo(raw, index = 0) {
   const name = String(raw.name || '').trim().slice(0, 60) || `Combination ${index + 1}`;
   const need = Math.min(conds.length, Math.max(1, Math.round(Number(raw.need)) || conds.length));
   const window = Math.min(6, Math.max(1, Math.round(Number(raw.window)) || DEFAULT_WINDOW));
-  const out = { id: slug(raw.id || name) || `combo-${index + 1}`, name, conds, need, window, on: raw.on !== false };
+  const out = { id: slug(raw.id || name) || `combo-${index + 1}`, name, conds, need, window, on: raw.on !== false && raw.index !== 'SENSEX' }; // a combination that was Sensex-only is kept but switched off
   // add-on checks that must all hold beside the rule; only used when the rule is "any N of M" (for "all" they simply join `conds`)
   const also = [...new Set((raw.also || []).filter((k) => CONDITION_BY_KEY.has(k) && !conds.includes(k)))].slice(0, MAX_ALSO);
   if (also.length && need < conds.length) out.also = also;
@@ -35,7 +35,6 @@ export function normalizeCombo(raw, index = 0) {
     out.conds = [...conds, ...also].slice(0, MAX_CONDITIONS);
     out.need = out.conds.length;
   }
-  if (raw.index === 'NIFTY' || raw.index === 'SENSEX') out.index = raw.index; // unset = both indexes
   if (out.on === false && typeof raw.benchedOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.benchedOn)) out.benchedOn = raw.benchedOn; // switched off by the bench; gone once it is on again
   if (raw.side === 'CE' || raw.side === 'PE') out.side = raw.side; // unset = both: a call on the rise and a put on the fall. One side only stops a "bullish" combination from buying puts.
   // an optional stop of its own: the combination's entries use it in place of the stop set for every entry in Account > Entries

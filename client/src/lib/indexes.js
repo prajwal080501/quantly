@@ -1,7 +1,6 @@
-// The two indexes whose options are traded. `symbol` is the name the market feed and the charts use.
+// The index whose options are traded. `symbol` is the name the market feed and the charts use.
 export const INDEXES = [
   { key: 'NIFTY', symbol: 'NIFTY 50', name: 'Nifty 50', short: 'Nifty' },
-  { key: 'SENSEX', symbol: 'SENSEX', name: 'Sensex', short: 'Sensex' },
 ];
 
 const KEY = 'npt_options_index';
@@ -27,5 +26,5 @@ export function saveIndex(key) {
   }
 }
 
-/** Index options need both indexes' names in plain words: "Nifty" or "Nifty and Sensex". */
+/** Index options need the index's name in plain words. */
 export const indexWords = (keys) => keys.map((k) => indexOf(k).short).join(' and ');

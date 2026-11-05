@@ -4,7 +4,7 @@ import { getMarketStatus } from './marketHours.js';
 import { INTERVAL_SECONDS, aggregateCandles } from './providers/BaseProvider.js';
 import { istParts } from './marketHours.js';
 import { addDays, daysBetween } from './days.js';
-import { INDEXES, atmStrike, chooseExpiry, weeklyExpiries } from '../options/symbols.js';
+import { INDEXES, atmStrike, chooseExpiry, weeklyExpiries, parseOptionSymbol, isIndexKey } from '../options/symbols.js';
 
 const HISTORY_TTL_MS = 30000;
 
@@ -16,13 +16,12 @@ const DAILY_TTL_MS = 6 * 60 * 60 * 1000;
 const DAILY_DAYS = 45;
 
 export class MarketDataService extends EventEmitter {
-  constructor(provider, { holidays = [], expiryWeekday, sensexExpiryWeekday, enforceHours = false } = {}) {
+  constructor(provider, { holidays = [], expiryWeekday, enforceHours = false } = {}) {
     super();
     this.setMaxListeners(50);
     this.provider = provider;
     this.holidays = holidays;
     this.expiryWeekday = expiryWeekday; // Nifty's weekly expiry weekday
-    this.sensexExpiryWeekday = sensexExpiryWeekday;
     this.enforceHours = enforceHours; // tells the app whether the order engine refuses orders outside market hours
     this.history = null; // the saved candle history (HistoryStore), set by HistorySync; studies and Review read it first
     this.latest = new Map();
@@ -84,11 +83,11 @@ export class MarketDataService extends EventEmitter {
 
   /** The weekly expiry weekday of an index's options (0 = Sunday). */
   weekdayOf(index) {
-    return (index === 'SENSEX' ? this.sensexExpiryWeekday : this.expiryWeekday) ?? INDEXES[index]?.expiryWeekday;
+    return this.expiryWeekday ?? INDEXES[index]?.expiryWeekday;
   }
 
   /**
-   * The at-the-money contract of `type` ('CE' or 'PE') on `index` ('NIFTY' or 'SENSEX') for the expiry worth buying, started streaming so it has a price.
+   * The at-the-money contract of `type` ('CE' or 'PE') on `index` ('NIFTY') for the expiry worth buying, started streaming so it has a price.
    * Returns null when the feed lists no contracts or the index has no price yet.
    */
   async pickOption({ type, now = new Date(), minDays = 1, index = 'NIFTY' }) {
@@ -122,6 +121,8 @@ export class MarketDataService extends EventEmitter {
 
   /** Start streaming a contract (e.g. one that is already held after a restart). */
   async watchOption(symbol, contract = null) {
+    const o = parseOptionSymbol(symbol);
+    if (o && !isIndexKey(o.index)) return; // an old Sensex contract: the feed no longer carries it
     if (contract) this.contracts.set(symbol, contract);
     await this.provider.subscribe([symbol]);
   }

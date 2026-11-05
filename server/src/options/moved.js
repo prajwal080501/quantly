@@ -68,7 +68,7 @@ export function movedOf(settings) {
   return key && CHECK.has(key) && limit > 0 ? { key, limit } : null;
 }
 
-/** Why the check skips a buy, or null. `index` is the short name for the words ('Nifty' or 'Sensex'). */
+/** Why the check skips a buy, or null. `index` is the short name for the words. */
 export function movedSkip(measures, check, { side = 'CE', index = 'Nifty' } = {}) {
   if (!check || !measures) return null;
   const value = measures[check.key];

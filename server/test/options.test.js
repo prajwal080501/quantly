@@ -28,7 +28,7 @@ test('an option symbol says its expiry, strike and side, and round-trips', () =>
   assert.equal(optionLabel(sx), 'SENSEX 82000 PE · 5 Nov');
   assert.equal(atmStrike(82049, 100), 82000);
   assert.equal(atmStrike(82051, 100), 82100);
-  assert.deepEqual(['NIFTY 50', 'SENSEX', 'RELIANCE'].map(indexKeyOf), ['NIFTY', 'SENSEX', null]);
+  assert.deepEqual(['NIFTY 50', 'SENSEX', 'RELIANCE'].map(indexKeyOf), ['NIFTY', null, null], 'Sensex is no longer an index the app trades');
   assert.ok(isOptionSymbol(sym));
   assert.ok(!isOptionSymbol('RELIANCE') && !isOptionSymbol('NIFTY 50') && !isOptionSymbol('BAJAJ-AUTO'));
   assert.equal(optionLabel(sym), 'NIFTY 24500 CE · 3 Nov');
@@ -514,11 +514,11 @@ test('the pattern switches are saved, validated and shown with their choices', a
   assert.equal(first.settings.minScore, undefined);
   assert.deepEqual(first.settings.indexes, ['NIFTY']);
   assert.equal(first.settings.mirror, false);
-  assert.deepEqual(first.indexChoices.map((c) => c.key), ['NIFTY', 'SENSEX']);
+  assert.deepEqual(first.indexChoices.map((c) => c.key), ['NIFTY']);
   assert.ok(first.patternChoices.some((p) => p.key === 'breakout' && /last hour/.test(p.label)));
-  const saved = (await api().put('/api/options').set(u.auth).send({ patterns: ['breakout'], indexes: ['SENSEX', 'NIFTY'], mirror: true }).expect(200)).body;
+  const saved = (await api().put('/api/options').set(u.auth).send({ patterns: ['breakout'], indexes: ['NIFTY'], mirror: true }).expect(200)).body;
   assert.deepEqual(saved.settings.patterns, ['breakout']);
-  assert.deepEqual(saved.settings.indexes, ['NIFTY', 'SENSEX'], 'kept in the usual order');
+  assert.deepEqual(saved.settings.indexes, ['NIFTY']);
   assert.equal(saved.settings.mirror, true);
   await api().put('/api/options').set(u.auth).send({ indexes: ['BANKNIFTY'] }).expect(400);
   await api().put('/api/options').set(u.auth).send({ indexes: [] }).expect(400);
@@ -884,7 +884,7 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   const fresh = await registerUser(app);
   const off = (await api().get('/api/options').set(fresh.auth).expect(200)).body;
   assert.equal(off.settings.enabled, false);
-  assert.equal(off.settings.budget, 60000, 'one budget for Nifty and Sensex together');
+  assert.equal(off.settings.budget, 60000, 'one budget for options');
   assert.match(off.disclaimer, /paper/i);
   assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, exitMin: 915, lockOn: true, steps: [{ at: 1000, keep: 750 }], savedSteps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
   assert.equal(off.settings.lockLadder, undefined);
@@ -1018,137 +1018,7 @@ test('a signal is tried again on the next scan when the contract it picked had n
   }
 });
 
-// ---------- the Sensex ----------
-
 const ltpOf = (c) => ctx.market.getLtp(c.symbol);
-
-test('the Sensex has its own contracts (strikes 100 apart, lot of 20, Thursday expiry) and they follow the Sensex, not the Nifty', async () => {
-  ctx.provider.setPrice('NIFTY 50', 25000);
-  ctx.provider.setPrice('SENSEX', 82000);
-  await settle();
-  const sx = await ctx.market.pickOption({ type: 'CE', now: new Date(), index: 'SENSEX' });
-  assert.match(sx.symbol, /^SENSEX-\d{8}-82000-CE$/);
-  assert.equal(sx.lotSize, 20);
-  assert.equal(new Date(`${sx.expiry}T12:00:00Z`).getUTCDay(), 4, 'Sensex weekly options expire on Thursdays');
-  assert.ok(sx.ltp > 100, `premium ${sx.ltp}`);
-  const nf = await ctx.market.pickOption({ type: 'CE', now: new Date() });
-  assert.match(nf.symbol, /^NIFTY-\d{8}-25000-CE$/);
-  const [sx0, nf0] = [ltpOf(sx), ltpOf(nf)];
-  ctx.provider.setPrice('SENSEX', 82300);
-  assert.ok(ltpOf(sx) > sx0 + 50, 'a 300 point rise lifts a Sensex call');
-  assert.equal(ltpOf(nf), nf0, 'a Nifty option does not move with the Sensex');
-  ctx.provider.setPrice('NIFTY 50', 25100);
-  assert.ok(ltpOf(nf) > nf0 + 20);
-  ctx.provider.setPrice('NIFTY 50', 25000);
-  ctx.provider.setPrice('SENSEX', 82000);
-  assert.equal(ctx.market.lotSize(sx.symbol), 20);
-  // an order is in whole lots of that contract
-  const fresh = await registerUser(app);
-  await api().post('/api/orders').set(fresh.auth).send({ symbol: sx.symbol, side: 'BUY', qty: 21 }).expect(400);
-  const placed = (await api().post('/api/orders').set(fresh.auth).send({ symbol: sx.symbol, side: 'BUY', qty: 20 }).expect(201)).body;
-  assert.equal(placed.order.segment, 'OPT');
-  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
-});
-
-test('a pattern on the Sensex chart buys a Sensex option, logged with its index, and the Nifty chart is not used for it', async () => {
-  ctx.provider.setPrice('NIFTY 50', 25000);
-  ctx.provider.setPrice('SENSEX', 82000);
-  await settle();
-  const realNow = optionTrader.now;
-  optionTrader.now = () => new Date(MIDMORNING());
-  try {
-    const fresh = await registerUser(app);
-    const uid = fresh.user.id || fresh.user._id;
-    const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'], indexes: ['NIFTY', 'SENSEX'], maxOpen: 2 })).toObject();
-    const k = 82000 / 25000;
-    const r = await optionTrader.considerPatterns(s, breakoutRead(20000, MIDMORNING(), { k, index: 'SENSEX' }));
-    assert.ok(r.order, r.skipped);
-    assert.match(r.plan.symbol, /^SENSEX-/);
-    assert.equal(r.plan.lotSize, 20);
-    assert.ok(r.plan.qty % 20 === 0 && r.plan.maxLoss <= 1500, `${r.plan.qty} units, loss at the stop ${r.plan.maxLoss}`);
-    assert.ok(r.plan.stopSpot > 80000 && r.plan.stopSpot < 82000 * 1.0, `a Sensex stop level, got ${r.plan.stopSpot}`);
-    const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
-    assert.equal(log.detail.index, 'SENSEX');
-    assert.match(log.detail.label, /^SENSEX 82\d{3} CE/);
-    assert.ok(optionTrader.open.get(`${uid}|${r.plan.symbol}`)?.index === 'SENSEX');
-
-    // one call at a time across both indexes: the Nifty breakout is refused while the Sensex call is open...
-    const nifty = await optionTrader.considerPatterns({ ...s, patterns: ['breakout'] }, breakoutRead(20000, MIDMORNING(), { index: 'NIFTY' }));
-    assert.match(nifty.skipped, /already holding a CE/);
-    // ...unless the user takes the signal on both indexes
-    const both = await optionTrader.considerPatterns({ ...s, mirror: true }, breakoutRead(20000, MIDMORNING() + 300000, { index: 'NIFTY' })); // the next bar: the refused one is not tried again
-    assert.ok(both.order, both.skipped);
-    assert.match(both.plan.symbol, /^NIFTY-/);
-    assert.equal((await optionTrader.todaySummary(uid)).open, 2, 'a call on each index');
-    await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
-  } finally {
-    optionTrader.now = realNow;
-  }
-});
-
-test('a Sensex trade is stopped by a closed 1-minute Sensex candle beyond its stop, and Nifty prices cannot touch it', async () => {
-  const fresh = await registerUser(app);
-  const uid = fresh.user.id || fresh.user._id;
-  ctx.provider.setPrice('NIFTY 50', 25000);
-  ctx.provider.setPrice('SENSEX', 82000);
-  await settle();
-  const s = (await OptionSettings.create({ user: uid, enabled: true, indexes: ['SENSEX'] })).toObject();
-  const realNow = optionTrader.now;
-  let clock = Date.now();
-  optionTrader.now = () => new Date(clock);
-  optionTrader.start();
-  const minuteLater = async (symbol, price) => {
-    clock += 60_000;
-    ctx.provider.setPrice(symbol, price);
-    await settle();
-  };
-  try {
-    const read = callRead(82000, 130);
-    const r = await consider(s, { ...read, index: 'SENSEX', best: { ...read.best, index: 'SENSEX' } });
-    assert.ok(r.order, r.skipped);
-    assert.match(r.plan.symbol, /^SENSEX-/);
-    assert.equal(r.plan.stopSpot, 81870);
-    // the Nifty is far below 81,870, but it is another index: nothing happens
-    ctx.provider.setPrice('NIFTY 50', 24000);
-    await minuteLater('NIFTY 50', 24000);
-    await sleep(50);
-    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN');
-    ctx.provider.setPrice('SENSEX', 81850);
-    await settle();
-    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'a tick through the level is not a close');
-    await minuteLater('SENSEX', 81850);
-    await sleep(100);
-    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'CLOSED');
-    const row = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
-    assert.equal(row.outcome.exitReason, 'STOP');
-  } finally {
-    optionTrader.stop();
-    optionTrader.now = realNow;
-    ctx.provider.setPrice('NIFTY 50', 25000);
-    ctx.provider.setPrice('SENSEX', 82000);
-  }
-});
-
-test('the options API reads either index, and buys a Sensex option by hand', async () => {
-  ctx.provider.setPrice('SENSEX', 82000);
-  await settle();
-  const fresh = await registerUser(app);
-  await api().get('/api/options/read?index=BANKNIFTY').set(fresh.auth).expect(400);
-  const nifty = (await api().get('/api/options/read').set(fresh.auth).expect(200)).body;
-  assert.equal(nifty.index, 'NIFTY');
-  const sensex = (await api().get('/api/options/read?index=SENSEX').set(fresh.auth).expect(200)).body;
-  // the sample feed has no Sensex history yet, so the chart may not be ready; when it is, it is the Sensex's
-  if (sensex.ready) {
-    assert.equal(sensex.index, 'SENSEX');
-    assert.equal(sensex.underlying, 'SENSEX');
-    assert.match(sensex.contracts.CE.symbol, /^SENSEX-/);
-  }
-  const bought = await api().post('/api/options/buy').set(fresh.auth).send({ type: 'CE', lots: 1, index: 'SENSEX' });
-  assert.ok([201, 400].includes(bought.status), `status ${bought.status}`);
-  if (bought.status === 201) assert.match(bought.body.plan.symbol, /^SENSEX-/);
-  await api().post('/api/options/buy').set(fresh.auth).send({ type: 'CE', index: 'DAX' }).expect(400);
-  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
-});
 
 test('a combination with exits of its own buys with its own profit ladder, trail and break-even; with none it keeps the Account ones', async () => {
   const realNow = optionTrader.now;

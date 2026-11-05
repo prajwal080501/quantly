@@ -37,7 +37,7 @@ export function ruleText(combo) {
 export function toPayload(combo, index = 0) {
   const own = combo.stopMode ? { stopMode: combo.stopMode, stopAtr: combo.stopAtr || 2, stopPoints: combo.stopPoints || 30 } : {};
   const exits = combo.exits && Object.keys(combo.exits).length ? { exits: combo.exits } : {};
-  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, ...(combo.also?.length ? { also: combo.also } : {}), need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...(combo.index === 'NIFTY' || combo.index === 'SENSEX' ? { index: combo.index } : {}), ...(combo.side === 'CE' || combo.side === 'PE' ? { side: combo.side } : {}), ...(combo.on === false && combo.benchedOn ? { benchedOn: combo.benchedOn } : {}), ...own, ...exits };
+  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, ...(combo.also?.length ? { also: combo.also } : {}), need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...(combo.side === 'CE' || combo.side === 'PE' ? { side: combo.side } : {}), ...(combo.on === false && combo.benchedOn ? { benchedOn: combo.benchedOn } : {}), ...own, ...exits };
 }
 
 /** A profit ladder of 8 rows 500 apart: lock `gap` points less than the gain reached. */
@@ -78,7 +78,6 @@ export function stopWord(c) {
 export const sideWord = (c) => (c?.side === 'CE' ? 'calls only' : c?.side === 'PE' ? 'puts only' : 'calls and puts');
 
 /** The index a combination trades, in words. */
-export const indexWord = (c) => (c?.index === 'SENSEX' ? 'Sensex only' : c?.index === 'NIFTY' ? 'Nifty only' : 'both indexes');
 
 export const fromSaved = (c) => ({ ...c, need: c.need >= c.conds.length ? 0 : c.need });
 

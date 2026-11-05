@@ -7,7 +7,7 @@ import { useStudy } from '../../lib/useStudy.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
 import { istStamp } from '../../lib/study.js';
 import { bandWords, chaseWords, rungLines, sameSteps } from '../../lib/ladderTest.js';
-import { INDEXES, loadIndex, saveIndex } from '../../lib/indexes.js';
+import { loadIndex, saveIndex } from '../../lib/indexes.js';
 import { Badge, Card, Fold, Segmented, Skeleton } from '../ui.jsx';
 
 const EXIT = { LOCK: 'ladder', STOP: 'stop', HARD: 'hard stop', EOD: 'close time', TRAIL: 'trail', BREAKEVEN: 'break-even' };
@@ -83,7 +83,7 @@ export function LadderTester() {
     setBusy(true);
     try {
       await api('/trade-defaults', { method: 'PUT', body: { [key]: { steps: row.steps, lockOn: true } } });
-      toast.success(`Saved. New ${key === 'sensex' ? 'Sensex' : ''} option trades now use: ${row.label}.`);
+      toast.success(`Saved. New option trades now use: ${row.label}.`);
       defaults.reload();
     } catch (e) {
       toast.error(e.message || 'Could not save the ladder');
@@ -125,7 +125,6 @@ export function LadderTester() {
         <p className="text-[11px] leading-snug text-muted">
           Takes the entries your auto trader would have taken (your patterns and the combinations switched on, with your stop, lots and daily limits) on the real option prices saved for the last 30 days, and sells each trade again with about 30 profit ladders. A ladder is <b className="text-fg">picked on the older two thirds of the days</b> and then <b className="text-fg">checked on the newest third</b>, which it never saw, so a ladder that only fits the past is not recommended. Nothing changes until you tap Use.
         </p>
-        <Segmented size="sm" value={index} onChange={pickIndex} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />
         <button type="button" className="btn btn-primary w-full" disabled={running} onClick={() => run(30, { index })}>
           <Play className="h-4 w-4" /> {running ? state?.status?.step || 'Running…' : 'Test ladders on the saved prices'}
         </button>
@@ -139,7 +138,7 @@ export function LadderTester() {
       {r && (
         <>
           <p className="px-1 text-[11px] text-muted">
-            {r.params.index === 'SENSEX' ? 'Sensex' : 'Nifty'} · {r.period.from} to {r.period.to} ({r.period.days} days with real prices{r.period.checkFrom ? `; older ${r.period.fitDays} days pick, newest ${r.period.checkDays} from ${r.period.checkFrom} check` : ''}) · {r.signals} entry signals · run {istStamp(Date.parse(r.generatedAt) / 1000)}
+            Nifty · {r.period.from} to {r.period.to} ({r.period.days} days with real prices{r.period.checkFrom ? `; older ${r.period.fitDays} days pick, newest ${r.period.checkDays} from ${r.period.checkFrom} check` : ''}) · {r.signals} entry signals · run {istStamp(Date.parse(r.generatedAt) / 1000)}
           </p>
 
           <Card className="space-y-2 p-3">

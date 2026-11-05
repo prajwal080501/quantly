@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 // One trading day of 1-minute candles of one index option contract (the real premiums), packed (see market/optionHistory.js). Market data, shared by every user.
 const optionCandleDaySchema = new mongoose.Schema(
   {
-    index: { type: String, required: true }, // 'NIFTY' | 'SENSEX'
+    index: { type: String, required: true }, // 'NIFTY' (older saved days may also hold 'SENSEX')
     symbol: { type: String, required: true }, // the app's option name (options/symbols.js)
     day: { type: String, required: true }, // YYYY-MM-DD, IST
     expiry: { type: String, required: true },

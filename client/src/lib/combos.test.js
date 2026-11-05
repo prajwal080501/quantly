@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { blankCombo, toggleCheck, needOf, ruleText, toPayload, indexWord, fromSaved, pickList, verdictMap, needsText, indicatorsText, MAX_CHECKS } from './combos.js';
+import { blankCombo, toggleCheck, needOf, ruleText, toPayload, fromSaved, pickList, verdictMap, needsText, indicatorsText, MAX_CHECKS } from './combos.js';
 
 const catalog = {
   groups: ['Trend', 'Momentum', 'Volume and VWAP'],
@@ -88,10 +88,3 @@ d2('own exits', () => {
   });
 });
 
-it('a combination keeps the index it trades on, and sends none for both', () => {
-  const base = { ...blankCombo(), id: 'x', name: 'A', conds: ['a'] };
-  expect(toPayload({ ...base, index: 'SENSEX' }).index).toBe('SENSEX');
-  expect('index' in toPayload({ ...base, index: '' })).toBe(false);
-  expect(indexWord({ index: 'NIFTY' })).toBe('Nifty only');
-  expect(indexWord({})).toBe('both indexes');
-});

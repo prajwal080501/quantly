@@ -1,6 +1,6 @@
 import { istParts, istTimeOn, CLOSE_MIN } from '../market/marketHours.js';
 
-// Nifty 50 and Sensex index options. A contract is named after what it is, so the symbol alone says everything:
+// Nifty 50 index options (old Sensex contract names still parse, so saved history can be shown). A contract is named after what it is, so the symbol alone says everything:
 // NIFTY-20261103-24500-CE = the 3 Nov 2026 Nifty expiry, strike 24500, call (SENSEX-20261105-82000-PE is a Sensex put). The order engine,
 // wallet and charts treat it like any other symbol; only the pricing, margin and charges look inside it.
 export const UNDERLYING = 'NIFTY 50';
@@ -11,11 +11,10 @@ export const OPTION_TICK = 0.05;
 
 /**
  * The indexes whose options the app trades. `lot` and `expiryWeekday` are only the defaults for the sample feed and for a study: the live
- * contracts carry their own lot size and expiry, and NIFTY_LOT_SIZE / SENSEX_LOT_SIZE / *_EXPIRY_WEEKDAY in the server settings override these.
+ * contracts carry their own lot size and expiry, and NIFTY_LOT_SIZE / NIFTY_EXPIRY_WEEKDAY in the server settings override these.
  */
 export const INDEXES = {
   NIFTY: { key: 'NIFTY', symbol: UNDERLYING, name: 'Nifty 50', short: 'Nifty', upstoxKey: 'NSE_INDEX|Nifty 50', strikeStep: STRIKE_STEP, lot: DEFAULT_LOT_SIZE, expiryWeekday: DEFAULT_EXPIRY_WEEKDAY },
-  SENSEX: { key: 'SENSEX', symbol: 'SENSEX', name: 'Sensex', short: 'Sensex', upstoxKey: 'BSE_INDEX|SENSEX', strikeStep: 100, lot: 20, expiryWeekday: 4 },
 };
 export const INDEX_KEYS = Object.keys(INDEXES);
 export const DEFAULT_INDEX = 'NIFTY';
@@ -23,8 +22,8 @@ export const isIndexKey = (key) => Object.hasOwn(INDEXES, key);
 /** 'NIFTY' | 'SENSEX' for the index a chart symbol belongs to ('NIFTY 50' -> 'NIFTY'), else null. */
 export const indexKeyOf = (symbol) => INDEX_KEYS.find((k) => INDEXES[k].symbol === symbol) ?? null;
 /** The default lot size of an index, from the server settings (`config.niftyLotSize`, `config.sensexLotSize`) when given. */
-export const lotSizeOf = (index, config = {}) => (index === 'SENSEX' ? config?.sensexLotSize : config?.niftyLotSize) ?? INDEXES[index]?.lot ?? DEFAULT_LOT_SIZE;
-export const expiryWeekdayOf = (index, config = {}) => (index === 'SENSEX' ? config?.sensexExpiryWeekday : config?.niftyExpiryWeekday) ?? INDEXES[index]?.expiryWeekday ?? DEFAULT_EXPIRY_WEEKDAY;
+export const lotSizeOf = (index, config = {}) => config?.niftyLotSize ?? INDEXES[index]?.lot ?? DEFAULT_LOT_SIZE;
+export const expiryWeekdayOf = (index, config = {}) => config?.niftyExpiryWeekday ?? INDEXES[index]?.expiryWeekday ?? DEFAULT_EXPIRY_WEEKDAY;
 
 const RE = /^(NIFTY|SENSEX)-(\d{4})(\d{2})(\d{2})-(\d{3,6})-(CE|PE)$/;
 

@@ -77,10 +77,10 @@ test('the tester picks on the older days, checks on the newer, and says what eac
 });
 
 test('candidates: every family loose to tight, late cut-offs only before your last entry time, saved where the setup lives', () => {
-  const rows = movedCandidates({ entryTo: 13 * 60 + 30, entryKey: 'sensexEntryTo' });
+  const rows = movedCandidates({ entryTo: 13 * 60 + 30, entryKey: 'entryTo' });
   const late = rows.filter((r) => r.family === 'late');
   assert.deepEqual(late.map((r) => r.limit), [13 * 60, 12 * 60 + 30, 12 * 60]);
-  assert.deepEqual(late[0].apply, { sensexEntryTo: 13 * 60 });
+  assert.deepEqual(late[0].apply, { entryTo: 13 * 60 });
   const run30 = rows.filter((r) => r.family === 'run30').map((r) => r.limit);
   assert.deepEqual(run30, [...run30].sort((a, b) => b - a));
   assert.ok(rows.some((r) => r.family === 'chase15'), 'the premium check of the ladder tester is one of the families');

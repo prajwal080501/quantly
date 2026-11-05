@@ -1,0 +1,1 @@
+var e=[{key:`NIFTY`,symbol:`NIFTY 50`,name:`Nifty 50`,short:`Nifty`}],t=`npt_options_index`,n=t=>e.find(e=>e.key===t)??e[0];function r(){try{let n=localStorage.getItem(t);if(e.some(e=>e.key===n))return n}catch{}return e[0].key}export{r as n,n as t};

@@ -749,10 +749,10 @@ test('a study also tries combinations that are off for live trading, runs them t
     }
   }
   assert.ok(narrow.techniques.find((t) => t.key === 'combo:on-one').trades <= a.trades);
-  // a combination for the other index is left out
+  // a combination that was Sensex-only is switched off, so a study leaves it out
   const sensexOnly = normalizeCombos([{ name: 'Sensex only', conds: ['emaStack'], index: 'SENSEX' }]);
   const n = await runOptionsStudy({ nifty1: minutes(14), params: { ...base, combos: sensexOnly, index: 'NIFTY' } });
-  assert.ok(!n.techniques.some((t) => t.combo));
+  assert.ok(!n.techniques.some((t) => t.combo && t.combo.on !== false && t.key === 'combo:sensex-only'));
 });
 
 // ---------- trend-day and filter checks added 2 Nov ----------
