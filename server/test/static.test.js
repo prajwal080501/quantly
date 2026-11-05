@@ -13,6 +13,8 @@ before(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dist-'));
   fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>app</title>');
   fs.writeFileSync(path.join(dir, 'app.js'), 'console.log(1)');
+  fs.mkdirSync(path.join(dir, 'assets'));
+  fs.writeFileSync(path.join(dir, 'assets', 'Account-abc123.js'), 'export default 1');
   ctx = await setup({ clientDist: dir });
 });
 after(async () => {
@@ -27,6 +29,20 @@ test('serves the web app and falls back to index.html for app routes', async () 
   const deep = await request(ctx.app).get('/dashboard').expect(200);
   assert.match(deep.text, /<title>app<\/title>/);
   await request(ctx.app).get('/app.js').expect(200);
+});
+
+test('the app page is never cached, hashed files are cached for good, old files 404 as text', async () => {
+  const root = await request(ctx.app).get('/').expect(200);
+  assert.match(root.headers['cache-control'], /no-store/);
+  const deep = await request(ctx.app).get('/account').expect(200);
+  assert.match(deep.headers['cache-control'], /no-store/);
+  const asset = await request(ctx.app).get('/assets/Account-abc123.js').expect(200);
+  assert.match(asset.headers['cache-control'], /immutable/);
+  const loose = await request(ctx.app).get('/app.js').expect(200);
+  assert.equal(loose.headers['cache-control'], 'no-cache');
+  const gone = await request(ctx.app).get('/assets/Account-old999.js').expect(404);
+  assert.match(gone.headers['content-type'], /text\/plain/);
+  assert.doesNotMatch(gone.text, /<title>app/);
 });
 
 test('unknown API paths still return JSON 404, and missing files 404', async () => {

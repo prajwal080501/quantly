@@ -70,11 +70,25 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.use('/api', notFoundHandler);
 
   if (config.clientDist) {
-    app.use(express.static(config.clientDist, { index: false, maxAge: '1h' }));
+    // Built files under /assets carry a content hash in their name, so they never change and can be
+    // cached for good. Everything else (index.html, icon, manifest) must be checked every time,
+    // otherwise a phone keeps an old page that asks for files a new build has deleted.
+    app.use(
+      express.static(config.clientDist, {
+        index: false,
+        setHeaders(res, filePath) {
+          const hashed = filePath.includes(`${path.sep}assets${path.sep}`);
+          res.setHeader('Cache-Control', hashed ? 'public, max-age=31536000, immutable' : 'no-cache');
+        },
+      }),
+    );
+    // A missing built file is a plain 404, never the app page served as JavaScript.
+    app.use('/assets', (req, res) => res.status(404).type('text/plain').set('Cache-Control', 'no-store').send('Not found'));
     // Any other page address belongs to the single-page app.
     app.use((req, res, next) => {
       if (req.method !== 'GET' || /^\/(api|upstox|socket\.io)(\/|$)/.test(req.path) || path.extname(req.path)) return next();
-      res.sendFile(path.join(config.clientDist, 'index.html'));
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.sendFile(path.join(config.clientDist, 'index.html'), { cacheControl: false });
     });
   }
 
