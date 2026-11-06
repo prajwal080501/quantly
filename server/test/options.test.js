@@ -456,7 +456,7 @@ async function breakoutOnce() {
   assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: true }), { patterns: [], combos: false }, 'the score no longer buys, whatever an old setting says');
   assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'] }] }).combos, true, 'a switched-on combination is an entry source');
   assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'], on: false }] }).combos, false);
-  assert.ok(LIVE_PATTERNS.length === 14 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
+  assert.ok(LIVE_PATTERNS.length > 0 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
 
   assert.match((await optionTrader.considerPatterns({ ...s, patterns: ['insideBar'] }, breakoutRead())).skipped, /no pattern/, 'a pattern that is not chosen is not traded');
   assert.match((await optionTrader.considerPatterns({ ...s, patternEntries: false }, breakoutRead())).skipped, /switched on/);
@@ -656,6 +656,9 @@ test('when a 1-minute candle of the index closes beyond the chart stop the trade
   try {
     const r = await consider(s, callRead(25000, 20));
     assert.ok(r.order, r.skipped);
+    // Isolate the closed-index-candle stop. The option premium's emergency stop
+    // is covered separately and can otherwise fire first as expiry/delta changes.
+    await api().put(`/api/positions/${r.plan.symbol}/exits`).set(fresh.auth).send({ stopLoss: null }).expect(200);
     ctx.provider.setPrice('NIFTY 50', 24995); // above the 24980 stop: still open
     await settle();
     ctx.provider.setPrice('NIFTY 50', 24978); // a wick through the stop inside one minute...

@@ -19,6 +19,7 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET || '',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   clientOrigin: (process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim()),
+  allowRegistration: bool(process.env.ALLOW_REGISTRATION, (process.env.NODE_ENV || 'development') !== 'production'),
 
   // Serve the web app from this server too (one process, one address). Turn off with SERVE_CLIENT=false.
   clientDist: bool(process.env.SERVE_CLIENT, true) ? clientDist : null,

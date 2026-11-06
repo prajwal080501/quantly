@@ -752,7 +752,9 @@ test('a study also tries combinations that are off for live trading, runs them t
   // a combination that was Sensex-only is switched off, so a study leaves it out
   const sensexOnly = normalizeCombos([{ name: 'Sensex only', conds: ['emaStack'], index: 'SENSEX' }]);
   const n = await runOptionsStudy({ nifty1: minutes(14), params: { ...base, combos: sensexOnly, index: 'NIFTY' } });
-  assert.ok(!n.techniques.some((t) => t.combo && t.combo.on !== false && t.key === 'combo:sensex-only'));
+  const legacy = n.techniques.find((t) => t.key === 'combo:sensex-only');
+  assert.ok(legacy, 'the legacy rule stays available for study');
+  assert.match(legacy.label, /off for live/, 'but it cannot place live Nifty trades');
 });
 
 // ---------- trend-day and filter checks added 2 Nov ----------

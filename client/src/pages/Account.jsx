@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, ChevronRight, LayoutDashboard, ListOrdered, LogOut, Plus, RotateCcw, FlaskConical, SlidersHorizontal, Sun, Moon, Trash2, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronRight, KeyRound, LayoutDashboard, ListOrdered, LogOut, Plus, RotateCcw, FlaskConical, SlidersHorizontal, Sun, Moon, Trash2, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -98,6 +98,36 @@ function RulesForm({ title, rules, onSave, onLock, saved, stopLabel = 'Stop loss
 const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
 const clockOf = (min) => timeText(min);
+
+function UpstoxLogin() {
+  const { data, loading } = useApi('/upstox/status');
+  const [busy, setBusy] = useState(false);
+
+  async function connect() {
+    setBusy(true);
+    try {
+      const result = await api('/upstox/session', { method: 'POST' });
+      window.location.assign(result.url);
+    } catch (err) {
+      toast.error(err.message || 'Could not start Upstox login');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-center gap-2">
+        <KeyRound className="h-4 w-4 text-accent" />
+        <div>
+          <div className="text-sm font-semibold">Upstox market login</div>
+          <div className="text-[11px] text-muted">{loading ? 'Checking…' : data?.connected ? 'Connected to live prices' : data?.configured ? 'Daily login required' : 'API credentials not configured'}</div>
+        </div>
+      </div>
+      {!data?.connected && <button type="button" disabled={busy || !data?.configured} onClick={connect} className="btn btn-primary w-full">{busy ? 'Opening Upstox…' : 'Connect Upstox live prices'}</button>}
+      <p className="text-xs text-muted">Upstox tokens expire daily. Reconnect here when the feed says it is offline. This app uses market data only and remains paper trading.</p>
+    </Card>
+  );
+}
 
 /** Account > Limits: the hours new option trades may be taken (09:15 to 15:15 unless changed). */
 function EntryHours({ data, reload }) {
@@ -310,6 +340,8 @@ export default function Account() {
           <LogOut className="h-4 w-4" /> Log out
         </button>
       </Card>
+
+      {status?.feed?.provider === 'upstox' && <UpstoxLogin />}
 
       {status?.feed && (
         <p className="text-center text-xs text-muted">

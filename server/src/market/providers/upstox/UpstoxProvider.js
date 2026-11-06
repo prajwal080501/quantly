@@ -73,6 +73,12 @@ export class UpstoxProvider extends BaseProvider {
     this.setStatus(false, 'Disconnected');
   }
 
+  /** Replace the daily OAuth token and make the next connection resubscribe every instrument. */
+  setAccessToken(accessToken) {
+    this.accessToken = accessToken;
+    this.subscribed.clear();
+  }
+
   async subscribe(symbols) {
     const keys = [];
     for (const sym of symbols) {

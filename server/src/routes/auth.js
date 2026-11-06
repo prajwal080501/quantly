@@ -6,7 +6,7 @@ import { User } from '../models/index.js';
 import { validate } from '../middleware/validate.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
 import { getOrCreateWallet } from '../services/walletService.js';
-import { conflict, unauthorized, notFound } from '../utils/errors.js';
+import { conflict, forbidden, unauthorized, notFound } from '../utils/errors.js';
 
 const registerSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -25,7 +25,10 @@ export function authRoutes(config) {
   const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: config.nodeEnv === 'test' ? 1000 : 20, standardHeaders: 'draft-7', legacyHeaders: false });
   const tokenFor = (user) => signToken(user._id, { secret: config.jwtSecret, expiresIn: config.jwtExpiresIn });
 
+  router.get('/config', (_req, res) => res.json({ registrationEnabled: config.allowRegistration !== false }));
+
   router.post('/register', limiter, validate(registerSchema), async (req, res) => {
+    if (config.allowRegistration === false) throw forbidden('Registration is disabled', 'REGISTRATION_DISABLED');
     const { name, email, password } = req.body;
     if (await User.exists({ email })) throw conflict('An account with this email already exists', 'EMAIL_TAKEN');
     const user = await User.create({ name, email, passwordHash: await bcrypt.hash(password, 10) });

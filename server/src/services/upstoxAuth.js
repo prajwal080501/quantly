@@ -2,9 +2,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 // Upstox OAuth: the login dialog redirects back with ?code=..., which is exchanged for an
 // access token valid until about 03:30 IST the next day.
-export function upstoxLoginUrl({ apiKey, redirectUri }) {
+export function upstoxLoginUrl({ apiKey, redirectUri }, state = '') {
   const url = new URL('https://api.upstox.com/v2/login/authorization/dialog');
-  url.search = new URLSearchParams({ response_type: 'code', client_id: apiKey, redirect_uri: redirectUri });
+  url.search = new URLSearchParams({ response_type: 'code', client_id: apiKey, redirect_uri: redirectUri, ...(state ? { state } : {}) });
   return url.toString();
 }
 

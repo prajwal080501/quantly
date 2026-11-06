@@ -1,17 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { Disclaimer } from '../components/ui.jsx';
+import { api } from '../lib/api.js';
 
 export default function AuthPage({ mode }) {
   const { user, login, register } = useAuth();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
   const { label } = useStartingBalance();
   const isRegister = mode === 'register';
+  useEffect(() => {
+    api('/auth/config').then((d) => setRegistrationEnabled(d.registrationEnabled !== false)).catch(() => {});
+  }, []);
   if (user) return <Navigate to="/" replace />;
+  if (isRegister && !registrationEnabled) return <Navigate to="/login" replace />;
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -54,12 +60,12 @@ export default function AuthPage({ mode }) {
             {busy ? 'Please wait…' : isRegister ? 'Create account' : 'Log in'}
           </button>
         </form>
-        <p className="mt-5 text-center text-sm text-muted">
+        {(isRegister || registrationEnabled) && <p className="mt-5 text-center text-sm text-muted">
           {isRegister ? 'Already have an account? ' : 'New here? '}
           <Link className="font-medium text-accent" to={isRegister ? '/login' : '/register'}>
             {isRegister ? 'Log in' : 'Create an account'}
           </Link>
-        </p>
+        </p>}
         <Disclaimer className="mt-10" />
       </div>
     </div>

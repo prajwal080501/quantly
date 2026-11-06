@@ -50,6 +50,9 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.use('/api/auth', authRoutes(config));
 
   const auth = requireAuth(config.jwtSecret);
+  const upstox = upstoxRoutes({ config, market });
+  app.use('/api/upstox', auth, upstox.api);
+  app.use('/upstox', upstox.callback);
   app.use('/api/market', auth, marketRoutes({ market }));
   app.use('/api/signals', auth, signalRoutes({ market, tracker }));
   if (scanner) app.use('/api/scanner', auth, scannerRoutes({ scanner, config }));
@@ -66,8 +69,6 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   if (ticks) app.use('/api/ticks', auth, tickRoutes({ recorder: ticks }));
   app.use('/api/report', auth, reportRoutes({ engine, market, review }));
   app.use('/api', auth, tradingRoutes({ engine, market, config }));
-
-  if (config.nodeEnv !== 'production') app.use('/upstox', upstoxRoutes(config));
 
   app.use('/api', notFoundHandler);
 
