@@ -9,6 +9,8 @@ const walletSchema = new mongoose.Schema(
     startingBalance: { type: Number, required: true },
     resetCount: { type: Number, default: 0 },
     lastResetAt: { type: Date },
+    // Set once, atomically, before the first cash posting. Old builds ignore it.
+    ledgerAdopted: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

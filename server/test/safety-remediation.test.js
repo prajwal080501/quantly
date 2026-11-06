@@ -5,10 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { setup, teardown, closeDb, registerUser, settle } from './helpers.js';
-import { createApp } from '../src/app.js';
-import { AutoTrader } from '../src/auto/autoTrader.js';
-import { CashPosting, Order, Position, Trade, Wallet } from '../src/models/index.js';
-import { postCash, repairBalance } from '../src/services/fillLedger.js';
+import { AutoSettings, CashPosting, FillLedger, Order, Position, Wallet } from '../src/models/index.js';
+import { commitFill, postCash, repairBalance } from '../src/services/fillLedger.js';
 import { setEnvValue } from '../src/services/upstoxAuth.js';
 import { parseUpstoxQuote } from '../src/market/providers/upstox/UpstoxProvider.js';
 
@@ -131,6 +129,83 @@ test('an existing cash balance is kept when postings are introduced', async () =
   await postCash(uid, 'after-opening', -10, 110000);
   const afterFill = await repairBalance(uid, 110000);
   assert.equal(afterFill.balance, 109080.29);
+});
+
+test('concurrent adoption and a fill keep the historical cash and apply the fill once', async () => {
+  const uid = user.user.id;
+  await CashPosting.deleteMany({ user: uid });
+  await Wallet.updateOne({ user: uid }, { $set: { balance: 109090.29, startingBalance: 110000, ledgerAdopted: false } });
+  await Promise.all([
+    repairBalance(uid, 110000),
+    repairBalance(uid, 110000),
+    postCash(uid, 'race-fill', -10, 110000),
+    postCash(uid, 'race-fill', -10, 110000),
+  ]);
+  const wallet = await repairBalance(uid, 110000);
+  assert.equal(wallet.balance, 109080.29);
+  assert.equal(await CashPosting.countDocuments({ key: `opening:${uid}` }), 1);
+  assert.equal(await CashPosting.countDocuments({ key: 'race-fill' }), 1);
+});
+
+test('a second new name is rejected while another entry is already resting at the open-position limit', async () => {
+  const trader = await registerUser(ctx.app);
+  await AutoSettings.create({ user: trader.user.id, maxOpen: 1, dailyLossPct: 10 });
+  ctx.provider.setPrice('SBIN', 800);
+  ctx.provider.setPrice('ITC', 450);
+  await settle();
+  const first = await http().post('/api/orders').set(trader.auth).send({ symbol: 'SBIN', side: 'BUY', orderType: 'LIMIT', qty: 1, price: 750 }).expect(201);
+  const second = await http().post('/api/orders').set(trader.auth).send({ symbol: 'ITC', side: 'BUY', orderType: 'LIMIT', qty: 1, price: 420 }).expect(200);
+  assert.equal(first.body.order.status, 'OPEN');
+  assert.equal(second.body.order.status, 'REJECTED');
+  assert.match(second.body.order.rejectReason, /maximum|open/i);
+});
+
+test('a resting entry is refused at trigger when another fill already used the open-position limit', async () => {
+  const trader = await registerUser(ctx.app);
+  await AutoSettings.create({ user: trader.user.id, maxOpen: 2, dailyLossPct: 10 });
+  ctx.provider.setPrice('HDFCBANK', 1600);
+  ctx.provider.setPrice('ICICIBANK', 1100);
+  await settle();
+  const first = await http().post('/api/orders').set(trader.auth).send({ symbol: 'HDFCBANK', side: 'BUY', orderType: 'LIMIT', qty: 1, price: 1500 }).expect(201);
+  const second = await http().post('/api/orders').set(trader.auth).send({ symbol: 'ICICIBANK', side: 'BUY', orderType: 'LIMIT', qty: 1, price: 1000 }).expect(201);
+  assert.equal(first.body.order.status, 'OPEN');
+  assert.equal(second.body.order.status, 'OPEN');
+  await AutoSettings.updateOne({ user: trader.user.id }, { $set: { maxOpen: 1 } });
+  ctx.provider.setPrice('HDFCBANK', 1490);
+  await settle();
+  ctx.provider.setPrice('ICICIBANK', 990);
+  await settle();
+  assert.equal(await Position.countDocuments({ user: trader.user.id, status: 'OPEN' }), 1);
+  const blocked = await Order.findById(second.body.order._id);
+  assert.equal(blocked.status, 'REJECTED');
+  assert.match(blocked.rejectReason, /maximum|open/i);
+});
+
+test('an automatic second order in a name that already has a resting entry is rejected', async () => {
+  const trader = await registerUser(ctx.app);
+  await AutoSettings.create({ user: trader.user.id, maxOpen: 5, dailyLossPct: 10 });
+  ctx.provider.setPrice('TCS', 3000);
+  await settle();
+  const first = await ctx.engine.placeOrder(trader.user.id, { symbol: 'TCS', side: 'BUY', orderType: 'LIMIT', qty: 1, price: 2900, source: 'AUTO' });
+  const second = await ctx.engine.placeOrder(trader.user.id, { symbol: 'TCS', side: 'BUY', orderType: 'LIMIT', qty: 1, price: 2900, source: 'AUTO' });
+  assert.equal(first.order.status, 'OPEN');
+  assert.equal(second.order.status, 'REJECTED');
+  assert.match(second.order.rejectReason, /Already in this stock/);
+});
+
+test('replaying an unfinished fill restores the position without posting cash twice', async () => {
+  ctx.provider.setPrice('HDFCBANK', 1600);
+  const placed = await http().post('/api/orders').set(user.auth).send({ symbol: 'HDFCBANK', side: 'BUY', qty: 1, clientOrderId: 'hdfc-replay' }).expect(201);
+  const key = placed.body.order.fillKey;
+  const before = (await http().get('/api/wallet').set(user.auth)).body.balance;
+  await Position.deleteMany({ user: user.user.id, symbol: 'HDFCBANK' });
+  await FillLedger.updateOne({ key }, { $set: { applied: false } });
+  const plan = (await FillLedger.findOne({ key }).lean()).plan;
+  await commitFill(plan, 100000);
+  await commitFill(plan, 100000);
+  assert.equal(await Position.countDocuments({ user: user.user.id, symbol: 'HDFCBANK', status: 'OPEN' }), 1);
+  const after = (await http().get('/api/wallet').set(user.auth)).body.balance;
+  assert.equal(after, before);
 });
 
 test('options dashboard does not keep share totals, and a failed options fetch is not the share payload', async () => {

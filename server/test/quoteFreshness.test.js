@@ -26,6 +26,12 @@ test('a missing upstream timestamp is not replaced with the local clock', () => 
   assert.equal(verdict.code, 'NO_TIMESTAMP');
 });
 
+test('a fresh feed-message time without a last-trade time is not an executable quote', () => {
+  const verdict = assessQuote({ ltp: 100, feedTs: now, source: 'upstox' }, { now });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, 'NO_TIMESTAMP');
+});
+
 test('a future timestamp and a non-positive price are rejected', () => {
   assert.equal(assessQuote({ ltp: 100, ltt: now + 30_000, source: 'upstox' }, { now }).code, 'FUTURE');
   assert.equal(assessQuote({ ltp: 0, ltt: now, source: 'upstox' }, { now }).code, 'NO_PRICE');

@@ -29,5 +29,15 @@
     "ema9Last": 1008.26,
     "rsi14Last": 60.29
   },
-  "barCount": 408
+  "barCount": 408,
+  "shortOrb": [
+    {
+      "setup": "Opening range breakout",
+      "side": "SELL",
+      "status": "ENTRY",
+      "entry": 991.5,
+      "stopLoss": 996,
+      "score": 84
+    }
+  ]
 }

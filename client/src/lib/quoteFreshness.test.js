@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { quoteView } from './quoteFreshness.js';
+import { responseStillCurrent } from './useApi.js';
 
 const now = 1_700_000_000_000;
 
@@ -15,6 +16,11 @@ describe('quoteView', () => {
     const view = quoteView({ ltp: 100, ltt: now - 60_000, feedTs: now, source: 'upstox' }, now);
     expect(view.state).toBe('stale');
     expect(view.label).toMatch(/Stale/);
+  });
+
+  it('drops a late response from the previous segment', () => {
+    expect(responseStillCurrent(1, 2, '/dashboard?segment=EQ', '/dashboard?segment=OPT')).toBe(false);
+    expect(responseStillCurrent(2, 2, '/dashboard?segment=OPT', '/dashboard?segment=OPT')).toBe(true);
   });
 
   it('does not invent a timestamp from the local clock', () => {

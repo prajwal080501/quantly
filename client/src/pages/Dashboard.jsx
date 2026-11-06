@@ -113,6 +113,7 @@ export default function Dashboard() {
           { value: 'OPT', label: 'Options' },
         ]}
       />
+      {error && <Card className="p-3 text-sm text-down">{error.message || 'Could not refresh this P&L view.'}</Card>}
       <Card className="p-4">
         <div className="text-xs text-muted">{segment === 'OPT' ? 'Options' : 'Shares'} P&amp;L (after charges)</div>
         <div className={`num mt-1 text-3xl font-bold ${pnlClass(total)}`}>{formatPnl(total)}</div>

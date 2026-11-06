@@ -38,4 +38,6 @@ Do these against the real process. Do not treat a Saturday as proof of a fresh i
 
 ## Rollback
 
-Stop `trading-helper.service`, restore the previous tree and the previous `phone-app`, and start the service. Leave the new collections in place. The previous process reads `wallet.balance` and ignores postings. Do not drop the Mongo volume.
+Copying the old code back is not enough while a fill is only partly written. The new process replays any `fillledgers` row with `applied` not true when it starts. Let that process finish startup, then stop it, restore the previous tree and `phone-app`, and start the old service. After a finished replay, `wallet.balance` matches the ledger and the old code can use that field. The `cashpostings`, `fillledgers`, and `ledgerAdopted` fields are ignored by the old build.
+
+If you stop the new process in the middle of a fill and do not let it start again, restore the Mongo backup taken before the upgrade. Do not drop the volume as a shortcut, and do not delete orders, positions, or trades by hand.

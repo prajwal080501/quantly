@@ -1,0 +1,126 @@
+[
+  {
+    "sha256": "9c5ceb53d6b35ff802cee1c023f8d5700fc93fafab1bf8caed45f23c781a889a",
+    "path": "server/src/combos/combos.js"
+  },
+  {
+    "sha256": "18aefd597a0ded6eb0aa5915927ac9ec398f208a567b04e0dfb9f76348b0be9e",
+    "path": "server/src/combos/conditions.js"
+  },
+  {
+    "sha256": "9193c32f5e492202929e51b196215a4b15949269a403436a81ecb7ce2a919418",
+    "path": "server/src/combos/explain.js"
+  },
+  {
+    "sha256": "4f2407e4cc71155a4a1b7de1fc8d0a5923932f587cfa45ac985d7cabb88678e9",
+    "path": "server/src/combos/schema.js"
+  },
+  {
+    "sha256": "b6693e496ce32d829bef64465e5618886c421c8098eab1eb9843587580c610c7",
+    "path": "server/src/combos/series.js"
+  },
+  {
+    "sha256": "e7cfe23f57caaabf48d1c9e367bcda3adf012d4f0a951c6cde19c237e05170e3",
+    "path": "server/src/combos/shares.js"
+  },
+  {
+    "sha256": "fe6b41ffedfa084781b87d6ea636a18f457245664b9beeb0e953c2c183c79ca0",
+    "path": "server/src/combos/verdict.js"
+  },
+  {
+    "sha256": "e21ac5f5d8dbe5755f0dbe9e90e035ef54cbaf0afe6037b991b10018d0b932c8",
+    "path": "server/src/news/reaction.js"
+  },
+  {
+    "sha256": "3b6233e9d581529acc2436a192e2679fcc1fe1a01a95933f53dc799879b605d9",
+    "path": "server/src/news/rss.js"
+  },
+  {
+    "sha256": "f871c162d780794ce5cb355bc4ed32073b75a539ec4253c14b6c952bd44080e0",
+    "path": "server/src/news/service.js"
+  },
+  {
+    "sha256": "02282281bfd50cc6256a52f40141a1ae9ecb97520a5e1b607cdc5e29ef52160a",
+    "path": "server/src/news/tagger.js"
+  },
+  {
+    "sha256": "806a209012aa91b14397b27022c99f310fc3420f1e138fb549160de442407c4f",
+    "path": "server/src/options/plan.js"
+  },
+  {
+    "sha256": "670fe4b1dc3adcf2d7ba11a1b7284848c1f462d8c356cda2a6f7753071ed80b0",
+    "path": "server/src/options/signal.js"
+  },
+  {
+    "sha256": "418d876790eaedd4298fe41953322dd1557d1ec18b411f7d6ab4d1d1d487b1be",
+    "path": "server/src/scanner/backtest.js"
+  },
+  {
+    "sha256": "ec70604d7c670aaf135487a1ba0a0529ac2b584046c3169e7d7bdcc41a36e450",
+    "path": "server/src/scanner/candleStore.js"
+  },
+  {
+    "sha256": "b89eafbcb9e348d3a08e97d0aa0e3739b77087e1701b42a40aa3dab348d226f3",
+    "path": "server/src/scanner/context.js"
+  },
+  {
+    "sha256": "cdc9c3a76c283dd93fe7b318f76bffe432c7d16f230dd57e4465ff662fc24a02",
+    "path": "server/src/scanner/daily.js"
+  },
+  {
+    "sha256": "acf37b6b8df14cf017d35fc3be69b6b731df4635e441c58050059c337dfeecfa",
+    "path": "server/src/scanner/evaluate.js"
+  },
+  {
+    "sha256": "be8efab753ff70c6fcf97261b17a21de3f31fab80b7e4d9bb6c31295aeff201f",
+    "path": "server/src/scanner/levels.js"
+  },
+  {
+    "sha256": "c9295ef08266bf31d8efc78abb3009e668c2ecf9e5761005435170e2dc444ff9",
+    "path": "server/src/scanner/pivots.js"
+  },
+  {
+    "sha256": "14f3cfe01c72a278889bf64a960c0ee99a6a555e6e47083fb2b78b1ea4701e7d",
+    "path": "server/src/scanner/plan.js"
+  },
+  {
+    "sha256": "dc2101e08ffe80303368b82abe869932bcf4152dee5fcad8e951712a1670848e",
+    "path": "server/src/scanner/replay.js"
+  },
+  {
+    "sha256": "8ad12527a63aef2e407863b015894da9866b6032a717ee696e6d55b5ae1d0daf",
+    "path": "server/src/scanner/service.js"
+  },
+  {
+    "sha256": "395b8d0ce8684925ff1f1e0e82f5999a0f83f3cbcf3534bdc2eaeef0e3ccfc61",
+    "path": "server/src/scanner/setups.js"
+  },
+  {
+    "sha256": "0666d4cf83f47509b03586f9dbfcf36a99fbdc34c5141f5d29ed2704fc102837",
+    "path": "server/src/scanner/sizing.js"
+  },
+  {
+    "sha256": "a08821b87d9aa6213dc9418a7d1a7fc0726e6c53ad04485f72e4c6b25b47094e",
+    "path": "server/src/scanner/stats.js"
+  },
+  {
+    "sha256": "bfd586893e338b599eaad1035b7c67c919eaf50d9e43fbfabd9e2831a721ea35",
+    "path": "server/src/signals/analyze.js"
+  },
+  {
+    "sha256": "cb7c18142f25c575f83dc1c15ecf86e44d0488c731bd2cc1f446c7c60ead89d6",
+    "path": "server/src/signals/indicators.js"
+  },
+  {
+    "sha256": "a2163ee772979394ae54f8d703455ac374c42a8a2495dff6e1af9b06b5f3289d",
+    "path": "server/src/signals/tracker.js"
+  },
+  {
+    "sha256": "ce5c7990749a6183377a4b791b8763fcf3566a06b1a0e86f1f7b67f20de6e8e3",
+    "path": "server/src/study/patterns.js"
+  },
+  {
+    "sha256": "19f4f42de589c82b8a3384ac1b4fcc057db814ca3354319e40bcc7b97a93133f",
+    "path": "server/src/study/simulate.js"
+  }
+]

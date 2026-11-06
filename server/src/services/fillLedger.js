@@ -18,17 +18,23 @@ async function walletFor(userId, startingBalance) {
   );
 }
 
-// Record cash that already exists in the wallet but not yet in the posting ledger.
-// Runs before a new posting is inserted, so a fill cannot be mistaken for that history.
+// One caller wins the claim. The pre-image balance is the cash figure to preserve.
+// A fill posting is not inserted until this returns, so it cannot erase that figure.
 async function adoptHistoricalCash(wallet) {
   const key = `opening:${wallet.user}`;
   if (await CashPosting.exists({ key })) return;
-  // Only before any fill posting exists. A later repair must not treat an unapplied fill as history.
-  if (await CashPosting.exists({ user: wallet.user })) return;
-  const gap = round2(wallet.balance - wallet.startingBalance);
+  const claimed = await Wallet.findOneAndUpdate(
+    { _id: wallet._id, ledgerAdopted: { $ne: true } },
+    { $set: { ledgerAdopted: true } },
+    { returnDocument: 'before' },
+  );
+  const source = claimed || await Wallet.findById(wallet._id);
+  if (!source) return;
+  if (!claimed && await CashPosting.exists({ user: source.user, key: { $ne: key } })) return;
+  const gap = round2(source.balance - source.startingBalance);
   if (gap === 0) return;
   try {
-    await CashPosting.create({ key, user: wallet.user, delta: gap });
+    await CashPosting.create({ key, user: source.user, delta: gap });
   } catch (err) {
     if (err?.code !== 11000) throw err;
   }
@@ -83,6 +89,13 @@ async function applyPlan(plan, startingBalance) {
   for (const cancel of plan.cancels || []) {
     await Order.updateOne({ _id: cancel.id, status: 'OPEN' }, { $set: { status: 'CANCELLED', cancelledAt: cancel.at, rejectReason: cancel.reason, blockedMargin: 0 } });
   }
+}
+
+/** Re-apply every fill whose plan was saved but not marked finished. Safe to run on every startup. */
+export async function reconcilePending(startingBalance) {
+  const rows = await FillLedger.find({ applied: { $ne: true } });
+  for (const row of rows) await commitFill(row.plan, startingBalance);
+  return rows.length;
 }
 
 /** Freeze `plan` on first use, then apply it. A second call with the same key does not post cash again. */

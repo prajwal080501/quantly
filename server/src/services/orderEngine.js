@@ -6,7 +6,7 @@ import { isOptionSymbol, parseOptionSymbol, lotSizeOf, isIndexKey } from '../opt
 import { getMarketStatus } from '../market/marketHours.js';
 import { LOCK_CHARGES_MULT, calculateCharges, roundTripCharges, splitCharges } from './charges.js';
 import { getFunds, resetAccount } from './walletService.js';
-import { commitFill } from './fillLedger.js';
+import { commitFill, reconcilePending } from './fillLedger.js';
 import { fittedStopDistance, openingDecision } from './riskGate.js';
 import { KeyedMutex } from '../utils/keyedMutex.js';
 import { round2, roundToTick } from '../utils/money.js';
@@ -54,6 +54,8 @@ export class OrderEngine extends EventEmitter {
   }
 
   async init() {
+    const pending = await reconcilePending(this.config.startingBalance);
+    if (pending) logger.info(`Replayed ${pending} unfinished paper fill${pending === 1 ? '' : 's'}`);
     const open = await Order.find({ status: 'OPEN' }).lean();
     for (const o of open) this.#addToBook(o);
     for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }, { 'lockSteps.0': { $exists: true } }, { 'stepPrices.0': { $exists: true } }] }).lean()) this.#watchTrail(p);
@@ -509,10 +511,11 @@ export class OrderEngine extends EventEmitter {
 
     const position = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
     const openingQty = this.#openingQty(position, side, qty);
+    const sameWaiting = openingQty > 0 && await Order.exists({ user: userId, symbol, status: 'OPEN', role: 'ENTRY' });
 
     let reject = null;
     if (option && openingQty > 0 && side === 'SELL') reject = 'Options are bought to open here. Writing (selling) options is not allowed.';
-    else if (order.source === 'AUTO' && openingQty > 0 && position) reject = 'Already in this stock.';
+    else if (order.source === 'AUTO' && openingQty > 0 && (position || sameWaiting)) reject = 'Already in this stock.';
     else if (this.config.enforceMarketHours && !status.isOpen) reject = 'Market is closed. NSE trades 09:15 to 15:30 IST, Monday to Friday.';
     else if (this.config.enforceMarketHours && status.afterSquareOff && openingQty > 0) {
       reject = 'New intraday positions are not allowed after the 15:15 IST square-off.';
@@ -571,8 +574,30 @@ export class OrderEngine extends EventEmitter {
       const position = await Position.findOne({ user: order.user, symbol: order.symbol, status: 'OPEN' });
       const openingQty = this.#openingQty(position, order.side, order.qty);
       if (openingQty > 0) {
+        if (order.source === 'AUTO' && position) {
+          order.status = 'REJECTED';
+          order.rejectReason = 'Already in this stock.';
+          order.blockedMargin = 0;
+          await order.save();
+          this.#removeFromBook(order.symbol, order._id);
+          this.emit('update', { userId: String(order.user), kind: 'order', order: order.toJSON(), message: order.rejectReason });
+          return null;
+        }
+        const gate = await this.#riskGate(order.user, {
+          segment: order.segment, qty: order.qty, price, stopLoss: order.stopLoss, side: order.side, source: order.source, symbol: order.symbol, ignoreOrderId: order._id, countPending: false,
+        });
+        if (!gate.ok || (order.source !== 'AUTO' && gate.qty !== order.qty)) {
+          order.status = 'REJECTED';
+          order.rejectReason = gate.message || 'This entry no longer fits the configured risk limits.';
+          order.blockedMargin = 0;
+          await order.save();
+          this.#removeFromBook(order.symbol, order._id);
+          this.emit('update', { userId: String(order.user), kind: 'order', order: order.toJSON(), message: order.rejectReason });
+          return null;
+        }
+        if (gate.qty !== order.qty) order.qty = gate.qty;
         const funds = await getFunds(order.user, this.config.startingBalance);
-        const required = this.#marginFor(openingQty, price, order.segment) + calculateCharges({ side: order.side, qty: order.qty, price, segment: order.segment }).total;
+        const required = this.#marginFor(this.#openingQty(position, order.side, order.qty), price, order.segment) + calculateCharges({ side: order.side, qty: order.qty, price, segment: order.segment }).total;
         if (required > funds.available + order.blockedMargin) {
           order.status = 'REJECTED';
           order.rejectReason = 'Insufficient funds when the order triggered';
@@ -598,10 +623,7 @@ export class OrderEngine extends EventEmitter {
       throw unavailable(problem?.message || `No fresh price for ${pos.symbol}. Exit was not filled.`, problem?.code || 'STALE_QUOTE');
     }
     const ltp = quote.ltp;
-    // Cancel resting SL/target legs first so they cannot fire after the exit.
-    for (const leg of await Order.find({ user: pos.user, symbol: pos.symbol, status: 'OPEN', role: { $in: EXIT_ROLES } })) {
-      await this.#cancel(leg, role === 'SQUAREOFF' ? 'Cancelled by square-off' : 'Cancelled on exit');
-    }
+    // Stops stay in force until the exit fill plan itself cancels them. A failed exit must not remove them first.
     const order = existing?.status === 'OPEN' ? existing : new Order({
       user: pos.user,
       symbol: pos.symbol,
@@ -851,7 +873,7 @@ export class OrderEngine extends EventEmitter {
   }
 
   /** Manual and auto openings share the configured rupee stop, max open count, and daily loss percent. */
-  async #riskGate(userId, { segment, qty, price, stopLoss, source, symbol, side }) {
+  async #riskGate(userId, { segment, qty, price, stopLoss, source, symbol, side, ignoreOrderId = null, countPending = true }) {
     const opt = segment === 'OPT';
     const rules = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment);
     const perTrade = rules.stopLoss || 0;
@@ -875,6 +897,16 @@ export class OrderEngine extends EventEmitter {
       openRisk += dist * Math.abs(pos.netQty) + roundTripCharges({ qty: Math.abs(pos.netQty), price: pos.avgPrice, segment });
     }
     const adding = open.some((p) => p.symbol === symbol);
+    const openSymbols = new Set(open.map((p) => p.symbol));
+    const reserved = new Set();
+    if (countPending) {
+      const pending = await Order.find({ user: userId, status: 'OPEN', role: 'ENTRY', ...segFilter }).lean();
+      for (const row of pending) {
+        if (ignoreOrderId && String(row._id) === String(ignoreOrderId)) continue;
+        if (openSymbols.has(row.symbol)) continue;
+        reserved.add(row.symbol);
+      }
+    }
     const day = this.marketStatus().istDate;
     const fills = await Trade.find({ user: userId, tradingDay: day, ...segFilter }).lean();
     const dayRealised = fills.reduce((s, t) => s + (t.realizedPnl || 0) - (t.charges?.total || 0), 0);
@@ -887,7 +919,7 @@ export class OrderEngine extends EventEmitter {
       stopDistance: distance ?? 0,
       perTradeRupees: perTrade,
       segment,
-      openCount: adding ? Math.max(0, open.length - 1) : open.length,
+      openCount: (adding ? Math.max(0, open.length - 1) : open.length) + reserved.size,
       maxOpen,
       openRiskRupees: openRisk,
       dayRealised,

@@ -49,11 +49,9 @@ export function assessQuote(tick, opts = {}) {
     // Last-trade time is the clock of the price itself. A fresh packet carrying an old ltt is not a fresh trade.
     stamp = ltt;
     kind = 'ltt';
-  } else if (feedTs != null) {
-    stamp = feedTs;
-    kind = 'feed';
   } else {
-    return { ok: false, code: 'NO_TIMESTAMP', message: 'The feed did not send an exchange or feed timestamp.' };
+    // feedTs is when the message was produced, not when the price last traded. It cannot make a quote executable.
+    return { ok: false, code: 'NO_TIMESTAMP', message: 'The feed did not send an exchange last-trade time.', feedTs };
   }
 
   const ageMs = now - stamp;

@@ -54,7 +54,7 @@ export async function resetAccount(userId, startingBalance) {
   ]);
   await Wallet.updateOne(
     { user: userId },
-    { $set: { balance: startingBalance, startingBalance, lastResetAt: new Date() }, $inc: { resetCount: 1 } },
+    { $set: { balance: startingBalance, startingBalance, lastResetAt: new Date(), ledgerAdopted: false }, $inc: { resetCount: 1 } },
     { upsert: true },
   );
 }

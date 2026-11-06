@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { evaluateStock } from '../src/scanner/evaluate.js';
 import { ema, rsi } from '../src/signals/indicators.js';
@@ -45,4 +46,28 @@ test('opening-range and indicator outputs on the frozen fixture are unchanged', 
   const bars = c1.map((b) => ({ close: b.close, high: b.high, low: b.low, time: b.time }));
   assert.equal(ema(bars, 9).at(-1)?.value ?? null, baseline.indicators.ema9Last);
   assert.equal(rsi(bars, 14).at(-1)?.value ?? null, baseline.indicators.rsi14Last);
+
+  const mirrored = c1.map((b) => ({ ...b, open: 2000 - b.open, close: 2000 - b.close, high: 2000 - b.low, low: 2000 - b.high }));
+  const shortTick = {
+    symbol: 'X', ltp: mirrored.at(-1).close, open: 1000,
+    high: Math.max(...mirrored.filter((b) => b.time >= T1).map((b) => b.high)),
+    low: Math.min(...mirrored.filter((b) => b.time >= T1).map((b) => b.low)),
+    prevClose: 1000, changePct: -1, totalBuyQty: 3000, totalSellQty: 7000,
+  };
+  const short = evaluateStock({ symbol: 'X', tick: shortTick, c1: mirrored, niftyChangePct: -0.3 }, { now: new Date('2026-10-22T05:00:00Z'), enforceWindows: true }).candidates
+    .filter((c) => c.setup === 'Opening range breakout' && c.side === 'SELL')
+    .map((c) => ({ setup: c.setup, side: c.side, status: c.status, entry: c.entry, stopLoss: c.stopLoss, score: c.score }));
+  assert.deepEqual(short, baseline.shortOrb);
+});
+
+test('setup, indicator, signal, news, and pattern files match the audited commit byte for byte', () => {
+  const files = JSON.parse(readFileSync(new URL('./fixtures/strategy-file-hashes.json', import.meta.url), 'utf8'));
+  assert.ok(files.length >= 30);
+  const changed = [];
+  for (const row of files) {
+    const body = readFileSync(new URL(`../../${row.path}`, import.meta.url));
+    const sha = createHash('sha256').update(body).digest('hex');
+    if (sha !== row.sha256) changed.push(row.path);
+  }
+  assert.deepEqual(changed, []);
 });
