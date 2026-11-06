@@ -66,7 +66,7 @@ function SignalRecord({ version }) {
 export default function Dashboard() {
   const { version } = useMarket();
   const [segment, setSegment] = useState('EQ');
-  const { data, loading } = useApi(`/dashboard?segment=${segment}`, [version, segment]);
+  const { data, error, loading } = useApi(`/dashboard?segment=${segment}`, [version, segment]);
   const open = data?.openPositions || [];
   const ltpOf = useLtps(open.map((p) => p.symbol));
 
@@ -84,6 +84,10 @@ export default function Dashboard() {
     return [...seen.entries()].sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
   }, [data]);
   const daily = useMemo(() => (data?.dailyPnl || []).map((d) => ({ time: d.day, value: d.pnl })), [data]);
+
+  if (error && !data) {
+    return <Card className="p-4 text-sm text-down">{error.message || 'Could not load this P&L view.'}</Card>;
+  }
 
   if (loading && !data) {
     return (

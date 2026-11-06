@@ -33,11 +33,15 @@ const orderSchema = new mongoose.Schema(
     ocoGroup: { type: String, index: true },
     ltpAtPlacement: { type: Number },
     tradingDay: { type: String, required: true },
+    clientOrderId: { type: String },
+    fillKey: { type: String },
   },
   { timestamps: true },
 );
 
 orderSchema.index({ user: 1, createdAt: -1 });
+orderSchema.index({ user: 1, clientOrderId: 1 }, { unique: true, partialFilterExpression: { clientOrderId: { $type: 'string' } } });
+orderSchema.index({ fillKey: 1 }, { unique: true, partialFilterExpression: { fillKey: { $type: 'string' } } });
 
 // Every order, from any code path, lands in the right segment by its symbol.
 orderSchema.pre('validate', function setSegment() {

@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 import { BaseProvider } from '../BaseProvider.js';
 import { NIFTY50, INDICES, isIndex } from '../../instruments.js';
 import { round2 } from '../../../utils/money.js';
+import { parseUpstreamTime } from '../../quoteFreshness.js';
 import { INDEXES, optionSymbol } from '../../../options/symbols.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -77,6 +78,37 @@ export class UpstoxProvider extends BaseProvider {
   setAccessToken(accessToken) {
     this.accessToken = accessToken;
     this.subscribed.clear();
+  }
+
+  /**
+   * One REST quote. Concurrent callers for the same symbol share one request.
+   * The returned last-trade time is the exchange time from the payload, never Date.now().
+   */
+  fetchQuote(symbol) {
+    if (!this.quoteFlight) this.quoteFlight = new Map();
+    const pending = this.quoteFlight.get(symbol);
+    if (pending) return pending;
+    const job = this.#fetchQuoteQueued(symbol).finally(() => this.quoteFlight.delete(symbol));
+    this.quoteFlight.set(symbol, job);
+    return job;
+  }
+
+  #fetchQuoteQueued(symbol) {
+    const run = async () => {
+      const wait = (this.nextQuoteAt || 0) - Date.now();
+      if (wait > 0) await sleep(wait);
+      this.nextQuoteAt = Date.now() + 200;
+      const key = this.keyBySymbol.get(symbol);
+      if (!key) throw new Error(`No Upstox instrument key for ${symbol}`);
+      const body = await this.#get(`/v2/market-quote/quotes?instrument_key=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(4000) });
+      const tick = parseUpstoxQuote(symbol, body);
+      if (!tick) throw new Error(`Upstox quote for ${symbol} had no last price`);
+      return tick;
+    };
+    const prev = this.quoteChain || Promise.resolve();
+    const job = prev.then(run, run);
+    this.quoteChain = job.catch(() => {});
+    return job;
   }
 
   async subscribe(symbols) {
@@ -286,12 +318,13 @@ export class UpstoxProvider extends BaseProvider {
     return turn;
   }
 
-  async #get(urlPath) {
+  async #get(urlPath, { signal } = {}) {
     const history = urlPath.includes('historical-candle');
     for (let attempt = 0; ; attempt++) {
       if (history) await this.#paced();
       const res = await fetch(`${this.apiBase}${urlPath}`, {
         headers: { Authorization: `Bearer ${this.accessToken}`, Accept: 'application/json' },
+        signal,
       });
       if (res.ok) return res.json();
       const body = await res.text();
@@ -407,6 +440,34 @@ export class UpstoxProvider extends BaseProvider {
   }
 }
 
+/** REST market-quote row. Timestamp fields are parsed; nothing is filled in with the local clock. */
+export function parseUpstoxQuote(symbol, body) {
+  const data = body?.data && typeof body.data === 'object' ? body.data : {};
+  const row = Object.values(data)[0];
+  if (!row || !(Number(row.last_price) > 0)) return null;
+  const ltt = parseUpstreamTime(row.last_trade_time ?? row.ltt ?? row.timestamp);
+  return {
+    symbol,
+    ltp: Number(row.last_price),
+    ltt,
+    feedTs: null,
+    ts: ltt,
+    prevClose: row.ohlc?.close ?? null,
+    open: row.ohlc?.open ?? null,
+    high: row.ohlc?.high ?? null,
+    low: row.ohlc?.low ?? null,
+    change: null,
+    changePct: null,
+    volume: row.volume ?? null,
+    atp: null,
+    totalBuyQty: null,
+    totalSellQty: null,
+    depth: null,
+    isIndex: isIndex(symbol),
+    source: 'upstox',
+  };
+}
+
 /** Convert one decoded Upstox Feed into the app's normalized tick. Exported for tests. */
 export function parseFeed(symbol, feed, currentTs) {
   const full = feed.fullFeed?.marketFF || feed.fullFeed?.indexFF;
@@ -438,7 +499,10 @@ export function parseFeed(symbol, feed, currentTs) {
     totalBuyQty: full?.tbq ?? null,
     totalSellQty: full?.tsq ?? null,
     depth,
-    ts: ltpc.ltt || currentTs || Date.now(),
+    ltt: ltpc.ltt || null,
+    feedTs: currentTs || null,
+    // No local clock substitute. A missing ltt/currentTs stays missing so the fill path can reject it.
+    ts: ltpc.ltt || currentTs || null,
     isIndex: isIndex(symbol),
     source: 'upstox',
   };

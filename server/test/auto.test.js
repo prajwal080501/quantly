@@ -106,7 +106,13 @@ test('stops opening trades once the daily loss limit is hit', async () => {
 });
 
 test('the order API cannot set the AUTO tag', async () => {
-  const res = await request(app).post('/api/orders').set(user.auth).send({ symbol: 'ITC', side: 'BUY', qty: 1, source: 'AUTO' }).expect(201);
+  // A shared user may already be at a risk limit. This check is only about the tag.
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  await AutoSettings.create({ user: uid, maxOpen: 10, dailyLossPct: 10 });
+  await TradeDefaults.create({ user: uid, shares: { stopLoss: 5000, lockStart: 0 } });
+  ctx.provider.setPrice('ITC', 400);
+  const res = await request(app).post('/api/orders').set(fresh.auth).send({ symbol: 'ITC', side: 'BUY', qty: 1, source: 'AUTO' }).expect(201);
   assert.equal(res.body.order.source, 'MANUAL');
 });
 
@@ -155,7 +161,7 @@ test('an auto trade has no sale target: it risks the Account stop, and the profi
   const i = { ...idea('LT', 'BUY'), stopLoss: 3480 };
   const r = await trader.consider(s, i);
   assert.ok(r.order, r.skipped);
-  assert.equal(r.order.qty, 50, 'the Account stop of 1000 / 20 per share');
+  assert.ok(r.order.qty > 0 && r.order.qty < 50, `charges come out of the ₹1,000 stop, so size is below the old gross-only 50 (got ${r.order.qty})`);
   assert.equal(await Order.countDocuments({ user: uid, symbol: 'LT', role: 'TARGET', status: 'OPEN' }), 0, 'nothing is sold at a target');
   const stopAt = async () => (await Order.findOne({ user: uid, symbol: 'LT', role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
   const pos = await Position.findOne({ user: uid, symbol: 'LT', status: 'OPEN' }).lean();
@@ -164,20 +170,24 @@ test('an auto trade has no sale target: it risks the Account stop, and the profi
   assert.equal(pos.lockSteps.length, 0, 'no percent ladder any more');
   assert.equal(await stopAt(), 3480);
 
-  ctx.provider.setPrice('LT', 3510); // +500: below the lock start, the stop stays
+  const qty = r.order.qty;
+  const entry = r.order.avgFillPrice;
+  const atProfit = (rupees) => entry + rupees / qty;
+  ctx.provider.setPrice('LT', atProfit(500)); // below the ₹1,000 lock, the stop stays
   await settle();
   assert.equal(await stopAt(), 3480);
-  ctx.provider.setPrice('LT', 3522); // +1,100: the stop keeps 1,000, so 20 a share
+  ctx.provider.setPrice('LT', atProfit(1100)); // keeps ₹1,000, then the ₹100 gap
   await settle();
-  assert.ok(Math.abs((await stopAt()) - 3520) <= 0.06, `stop ${await stopAt()}`);
-  ctx.provider.setPrice('LT', 3530); // +1,500: 100 behind
+  assert.ok(Math.abs((await stopAt()) - atProfit(1000)) <= 0.06, `stop ${await stopAt()}`);
+  ctx.provider.setPrice('LT', atProfit(1500));
   await settle();
-  assert.ok(Math.abs((await stopAt()) - 3528) <= 0.06);
-  ctx.provider.setPrice('LT', 3528.5); // a dip above the stop leaves it and the trade alone
+  assert.ok(Math.abs((await stopAt()) - atProfit(1400)) <= 0.06, `stop ${await stopAt()}`);
+  const parked = (await stopAt()) + 0.5;
+  ctx.provider.setPrice('LT', parked); // a dip above the stop leaves it and the trade alone
   await settle();
-  assert.ok(Math.abs((await stopAt()) - 3528) <= 0.06);
+  assert.ok(Math.abs((await stopAt()) - atProfit(1400)) <= 0.06);
   assert.equal((await Position.findOne({ user: uid, symbol: 'LT' })).status, 'OPEN');
-  ctx.provider.setPrice('LT', 3527); // falls to the raised stop: the profit is kept
+  ctx.provider.setPrice('LT', (await stopAt()) - 0.1); // falls through the raised stop
   await settle();
   await new Promise((r) => setTimeout(r, 50));
   const closed = await Position.findOne({ user: uid, symbol: 'LT' }).lean();
@@ -254,10 +264,12 @@ test('the log fills in how a trade ended: stop, profit lock, manual exit', async
     ctx.provider.setPrice('SBIN', 800);
     await settle();
     const c = idea('SBIN', 'BUY');
-    await trader.consider(settings({ user: uid, maxOpen: 10 }), c);
-    ctx.provider.setPrice('SBIN', c.entry * 1.007);
+    const placed = await trader.consider(settings({ user: uid, maxOpen: 10 }), c);
+    const qty = placed.order.qty;
+    const entry = placed.order.avgFillPrice;
+    ctx.provider.setPrice('SBIN', entry + 400 / qty); // past the ₹250 lock
     await settle();
-    ctx.provider.setPrice('SBIN', c.entry * 1.004);
+    ctx.provider.setPrice('SBIN', entry + 300 / qty); // back through the stop that now keeps the profit
     await settle();
     await new Promise((r) => setTimeout(r, 50));
     row = await outcomeOf('SBIN');

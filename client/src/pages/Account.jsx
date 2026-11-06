@@ -335,6 +335,7 @@ export default function Account() {
         </button>
         <button type="button" disabled={busy} onClick={reset} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm text-warn transition-colors hover:bg-surface-2 disabled:opacity-50">
           <RotateCcw className="h-4 w-4" /> Reset wallet to {startLabel}
+          <span className="block pl-6 text-[11px] font-normal text-muted">Deletes paper history and any top-up. Restores the configured starting balance.</span>
         </button>
         <button type="button" onClick={logout} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm text-down transition-colors hover:bg-surface-2">
           <LogOut className="h-4 w-4" /> Log out

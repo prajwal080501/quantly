@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import path from 'node:path';
 import { upstoxLoginUrl, exchangeUpstoxCode, setEnvValue } from '../services/upstoxAuth.js';
+import { User } from '../models/index.js';
 import { logger } from '../utils/logger.js';
 
 const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -39,7 +40,13 @@ export function upstoxRoutes({ config, market }) {
     res.json({ configured: configured(), connected: feed.provider === 'upstox' && feed.connected, redirectUri: creds.redirectUri || null });
   });
 
-  api.post('/session', (_req, res) => {
+  api.post('/session', async (req, res) => {
+    const allowed = new Set(creds.operatorEmails || []);
+    if (!allowed.size) return res.status(403).json({ error: { code: 'OPERATOR_REQUIRED', message: 'Set UPSTOX_OPERATOR_EMAILS to the operator account before connecting Upstox.' } });
+    const user = await User.findById(req.userId).lean();
+    if (!user || !allowed.has(String(user.email || '').toLowerCase())) {
+      return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Only a configured operator can replace the market-data token.' } });
+    }
     if (market.provider.name !== 'upstox') return res.status(400).json({ error: { code: 'WRONG_PROVIDER', message: 'Upstox is not the selected market-data provider' } });
     if (!configured()) return res.status(400).json({ error: { code: 'UPSTOX_NOT_CONFIGURED', message: 'Upstox API key, secret and redirect URL are not configured' } });
     prune();

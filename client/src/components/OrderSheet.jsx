@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Minus, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../lib/api.js';
@@ -7,6 +7,7 @@ import { estimateCharges, MIS_LEVERAGE } from '../lib/charges.js';
 import { formatINR, formatPrice, formatPct, pnlClass } from '../lib/format.js';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useOrderBlock } from '../lib/orderGate.js';
+import { quoteView } from '../lib/quoteFreshness.js';
 import { Segmented, Flash } from './ui.jsx';
 
 const roundTick = (p) => Math.round(p / 0.05) * 0.05;
@@ -31,8 +32,10 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
   const [target, setTarget] = useState(plan ? String(plan.target) : '');
   const [funds, setFunds] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const clientOrderId = useRef(globalThis.crypto?.randomUUID?.() || `ord-${Date.now()}`);
+  const priceView = quoteView(tick);
 
-  const ltp = tick?.ltp;
+  const ltp = priceView.state === 'fresh' ? priceView.ltp : null;
   const isBuy = side === 'BUY';
   const ref = orderType === 'LIMIT' ? Number(price) || ltp : ltp;
 
@@ -90,7 +93,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const body = { symbol, side, orderType, qty };
+      const body = { symbol, side, orderType, qty, clientOrderId: clientOrderId.current };
       if (orderType === 'LIMIT') body.price = Number(price);
       if (withBracket) {
         if (sl) body.stopLoss = sl;
@@ -270,6 +273,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
         {/* Confirm stays in thumb reach even when the sheet scrolls */}
         <div className="sticky bottom-0 border-t border-line bg-surface px-4 pt-3 pb-4">
           {blocked && <p className="mb-2 rounded-lg bg-warn/10 px-3 py-2 text-center text-xs font-medium text-warn">{blocked}. Orders open again when the market does.</p>}
+          {!blocked && priceView.state !== 'fresh' && <p className="mb-2 rounded-lg bg-warn/10 px-3 py-2 text-center text-xs font-medium text-warn">{priceView.label}. A cached price is not used.</p>}
           <button type="submit" disabled={!canSubmit} className={`btn btn-lg w-full !py-4 ${accent}`}>
             {blocked ? 'Orders are closed' : submitting ? 'Placing…' : `${side} ${qty || ''} ${symbol}${orderType === 'LIMIT' && price ? ` @ ₹${price}` : ''}`}
           </button>

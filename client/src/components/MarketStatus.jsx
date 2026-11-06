@@ -15,6 +15,7 @@ export function MarketStatus({ compact = false }) {
       </span>
       {status.feed.simulated && <Badge tone="warn">Simulated</Badge>}
       {(!connected || !status.feed.connected) && <Badge tone="down">Feed offline</Badge>}
+      {status.market.holidayCalendar === 'unconfigured' && <Badge tone="warn">Holidays unset</Badge>}
     </div>
   );
 }

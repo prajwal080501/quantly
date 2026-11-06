@@ -6,7 +6,7 @@ export function signToken(userId, { secret, expiresIn }) {
 }
 
 export function verifyToken(token, secret) {
-  const payload = jwt.verify(token, secret);
+  const payload = jwt.verify(token, secret, { algorithms: ['HS256'] });
   return payload.sub;
 }
 

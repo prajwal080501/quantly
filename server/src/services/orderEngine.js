@@ -1,11 +1,13 @@
 import { EventEmitter } from 'node:events';
-import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
+import { AutoSettings, FillLedger, OptionSettings, Order, Position, Trade, TradeDefaults } from '../models/index.js';
 import { rulesFor } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
 import { isOptionSymbol, parseOptionSymbol, lotSizeOf, isIndexKey } from '../options/symbols.js';
 import { getMarketStatus } from '../market/marketHours.js';
 import { LOCK_CHARGES_MULT, calculateCharges, roundTripCharges, splitCharges } from './charges.js';
-import { getFunds, adjustBalance, resetAccount } from './walletService.js';
+import { getFunds, resetAccount } from './walletService.js';
+import { commitFill } from './fillLedger.js';
+import { fittedStopDistance, openingDecision } from './riskGate.js';
 import { KeyedMutex } from '../utils/keyedMutex.js';
 import { round2, roundToTick } from '../utils/money.js';
 import { badRequest, notFound, unavailable } from '../utils/errors.js';
@@ -153,10 +155,13 @@ export class OrderEngine extends EventEmitter {
   async checkSquareOff() {
     if (!this.config.enforceMarketHours) return; // mock practice mode: no clock-driven square-off
     const status = this.marketStatus();
-    if (status.afterSquareOff && this.lastSquareOffDay !== status.istDate) {
+    // Do not latch the day before exits succeed. A later tick retries any symbol still open.
+    if (!status.afterSquareOff) return;
+    if (!(await Position.exists({ status: 'OPEN' }))) return;
+    const res = await this.squareOff();
+    if (this.lastSquareOffDay !== status.istDate || res.positionsExited) {
       this.lastSquareOffDay = status.istDate;
-      const res = await this.squareOff();
-      logger.info(`Auto square-off done: ${res.positionsExited} positions across ${res.users} users`);
+      logger.info(`Auto square-off pass: ${res.positionsExited} positions across ${res.users} users`);
     }
   }
 
@@ -452,9 +457,18 @@ export class OrderEngine extends EventEmitter {
       if (qty % lot !== 0) throw badRequest(`Options trade in lots of ${lot}`, 'INVALID_QTY');
     }
 
-    if (option && !this.market.getLtp(symbol)) await this.market.watchOption?.(symbol); // start the contract's price stream
-    const ltp = this.market.getLtp(symbol);
-    if (!ltp) throw unavailable('No live price for this stock yet. Try again in a moment.', 'NO_PRICE');
+    if (input.clientOrderId) {
+      const prev = await Order.findOne({ user: userId, clientOrderId: input.clientOrderId });
+      if (prev) return { order: prev, trades: await Trade.find({ order: prev._id }), replayed: true };
+    }
+
+    if (option && !this.market.getExecutableQuote(symbol)) await this.market.watchOption?.(symbol); // start the contract's price stream
+    const quote = await this.#freshQuote(symbol);
+    if (!quote) {
+      const problem = this.market.quoteProblem?.(symbol);
+      throw unavailable(problem?.message || 'No fresh price for this symbol. The last cached price is not used.', problem?.code || 'STALE_QUOTE');
+    }
+    const ltp = quote.ltp;
 
     const segment = option ? 'OPT' : 'EQ';
     const price = orderType === 'LIMIT' ? roundToTick(Number(input.price)) : undefined;
@@ -487,22 +501,31 @@ export class OrderEngine extends EventEmitter {
       target,
       role: 'ENTRY',
       source: input.source === 'AUTO' ? 'AUTO' : 'MANUAL', // the HTTP schema strips this, so only server code can set it
+      clientOrderId: input.clientOrderId || undefined,
       ltpAtPlacement: ltp,
       tradingDay: status.istDate,
     });
+    order.fillKey = `order:${order._id}`;
 
     const position = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
     const openingQty = this.#openingQty(position, side, qty);
 
     let reject = null;
     if (option && openingQty > 0 && side === 'SELL') reject = 'Options are bought to open here. Writing (selling) options is not allowed.';
+    else if (order.source === 'AUTO' && openingQty > 0 && position) reject = 'Already in this stock.';
     else if (this.config.enforceMarketHours && !status.isOpen) reject = 'Market is closed. NSE trades 09:15 to 15:30 IST, Monday to Friday.';
     else if (this.config.enforceMarketHours && status.afterSquareOff && openingQty > 0) {
       reject = 'New intraday positions are not allowed after the 15:15 IST square-off.';
     } else if (openingQty > 0) {
-      const required = this.#marginFor(openingQty, ref, segment) + calculateCharges({ side, qty, price: ref, segment }).total;
+      const gate = await this.#riskGate(userId, { segment, qty, price: ref, stopLoss, side, source: order.source, symbol });
+      if (!gate.ok) reject = gate.message;
+      else if (gate.qty !== qty) {
+        order.qty = gate.qty;
+      }
+      const useQty = order.qty;
+      const required = this.#marginFor(this.#openingQty(position, side, useQty), ref, segment) + calculateCharges({ side, qty: useQty, price: ref, segment }).total;
       const funds = await getFunds(userId, this.config.startingBalance);
-      if (required > funds.available) {
+      if (!reject && required > funds.available) {
         reject = `Insufficient funds. Required ₹${round2(required)}, available ₹${funds.available}.`;
       }
     }
@@ -531,7 +554,17 @@ export class OrderEngine extends EventEmitter {
       this.#removeFromBook(order?.symbol ?? symbol, orderId);
       return null;
     }
-    const price = this.market.getLtp(order.symbol) ?? ltp;
+    const fresh = this.market.getExecutableQuote(order.symbol);
+    if (!fresh) {
+      const problem = this.market.quoteProblem?.(order.symbol);
+      this.emit('update', {
+        userId: String(order.user),
+        kind: 'quote',
+        message: `${order.symbol} exit is waiting: ${problem?.message || 'no fresh price'}. It was not filled at the last cached price.`,
+      });
+      return null;
+    }
+    const price = fresh.ltp;
     if (!isTriggered(order, price)) return null; // price moved back before we got the lock
 
     if (order.role === 'ENTRY') {
@@ -555,29 +588,32 @@ export class OrderEngine extends EventEmitter {
   }
 
   async #marketExit(pos, role) {
-    let ltp = this.market.getLtp(pos.symbol);
-    if (!ltp) {
-      // Sensex options are no longer in the feed, so a Sensex trade left open from before has no live price. Close it at the last price
-      // this app saw for it (its latest fill, else the price it was bought at) rather than leaving it stuck open.
-      const o = parseOptionSymbol(pos.symbol);
-      if (!o || isIndexKey(o.index)) throw unavailable(`No live price for ${pos.symbol}`, 'NO_PRICE');
-      ltp = (await Trade.findOne({ user: pos.user, symbol: pos.symbol }).sort({ createdAt: -1 }).lean())?.price ?? pos.avgPrice;
-      logger.warn(`${pos.symbol} is no longer in the feed: closing at last known price ${ltp}`);
+    const day = this.marketStatus().istDate;
+    const fillKey = role === 'SQUAREOFF' ? `squareoff:${pos._id}:${day}` : `exit:${pos._id}`;
+    const existing = await Order.findOne({ fillKey });
+    if (existing?.status === 'FILLED') return { order: existing, trades: await Trade.find({ fillKey }) };
+    const quote = await this.#freshQuote(pos.symbol);
+    if (!quote) {
+      const problem = this.market.quoteProblem?.(pos.symbol);
+      throw unavailable(problem?.message || `No fresh price for ${pos.symbol}. Exit was not filled.`, problem?.code || 'STALE_QUOTE');
     }
+    const ltp = quote.ltp;
     // Cancel resting SL/target legs first so they cannot fire after the exit.
     for (const leg of await Order.find({ user: pos.user, symbol: pos.symbol, status: 'OPEN', role: { $in: EXIT_ROLES } })) {
       await this.#cancel(leg, role === 'SQUAREOFF' ? 'Cancelled by square-off' : 'Cancelled on exit');
     }
-    const order = new Order({
+    const order = existing?.status === 'OPEN' ? existing : new Order({
       user: pos.user,
       symbol: pos.symbol,
       side: pos.netQty > 0 ? 'SELL' : 'BUY',
       orderType: 'MARKET',
       qty: Math.abs(pos.netQty),
       role,
+      fillKey,
       ltpAtPlacement: ltp,
-      tradingDay: this.marketStatus().istDate,
+      tradingDay: day,
     });
+    order.fillKey = fillKey;
     return this.#fill(order, ltp);
   }
 
@@ -587,6 +623,16 @@ export class OrderEngine extends EventEmitter {
    */
   async #fill(order, price) {
     const userId = order.user;
+    if (!order.fillKey) order.fillKey = `order:${order._id}`;
+    const key = order.fillKey;
+    const prior = await FillLedger.findOne({ key }).lean();
+    if (prior) {
+      await commitFill(prior.plan, this.config.startingBalance);
+      const saved = await Order.findById(order._id);
+      const trades = await Trade.find({ fillKey: key });
+      return { order: saved || order, trades };
+    }
+
     let position = await Position.findOne({ user: userId, symbol: order.symbol, status: 'OPEN' });
 
     if (EXIT_ROLES.includes(order.role)) {
@@ -600,10 +646,19 @@ export class OrderEngine extends EventEmitter {
 
     const { side, qty, symbol } = order;
     const segment = isOptionSymbol(symbol) ? 'OPT' : 'EQ';
+    order.segment = segment;
     const now = this.now();
     const tradingDay = this.marketStatus().istDate;
     const charges = calculateCharges({ side, qty, price, segment });
     const trades = [];
+    const positions = [];
+    const snap = (pos) => {
+      const plain = pos.toObject();
+      const id = plain._id;
+      delete plain._id;
+      delete plain.__v;
+      positions.push({ match: { _id: id }, set: plain });
+    };
     let remaining = qty;
     let pnlDelta = 0;
 
@@ -622,8 +677,8 @@ export class OrderEngine extends EventEmitter {
         position.closedAt = now;
         position.margin = 0;
       }
-      await position.save();
-      trades.push(this.#trade(order, position, closeQty, price, ch, pnl, now, tradingDay));
+      snap(position);
+      trades.push(this.#trade(order, position, closeQty, price, ch, pnl, now, tradingDay, 'close'));
       pnlDelta += pnl;
       remaining -= closeQty;
       if (position.status === 'CLOSED') position = null;
@@ -639,14 +694,15 @@ export class OrderEngine extends EventEmitter {
         position = new Position({
           user: userId,
           symbol,
+          segment,
           direction: side === 'BUY' ? 'LONG' : 'SHORT',
           netQty: sign(side) * remaining,
           avgPrice: price,
           openedAt: now,
           tradingDay,
+          fillOpenKey: key,
         });
-        // Every new position gets the user's stop and profit lock for its segment, whoever placed it: the stop is a fixed rupee loss
-        // (unless the order brought its own), and the lock is the user's ladder: one row follows its gap behind the best profit, several rows hand over to each other as the profit climbs.
+        // Every new position gets the user's stop and profit lock for its segment, whoever placed it.
         const d = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment, { index: parseOptionSymbol(symbol)?.index });
         if (d.steps.length === 1) {
           position.lockTrigger = d.steps[0].at;
@@ -654,52 +710,77 @@ export class OrderEngine extends EventEmitter {
           position.lockRatio = 1;
         } else if (d.steps.length > 1) position.lockSteps = d.steps;
         if (!order.stopLoss && d.stopLoss > 0) {
-          const away = d.stopLoss / remaining;
-          order.stopLoss = side === 'BUY' ? roundToTick(Math.max(price - away, 0.05)) : roundToTick(price + away);
+          const away = fittedStopDistance({ perTradeRupees: d.stopLoss, qty: remaining, price, segment });
+          if (away > 0) order.stopLoss = side === 'BUY' ? roundToTick(Math.max(price - away, 0.05)) : roundToTick(price + away);
         }
       }
       this.#bookSide(position, side, remaining, price);
       position.charges = round2(position.charges + ch.total);
       position.margin = round2(position.margin + this.#marginFor(remaining, price, segment));
-      await position.save();
+      snap(position);
       if (position.lockTrigger != null || position.lockSteps?.length) this.#watchTrail(position);
-      trades.push(this.#trade(order, position, remaining, price, ch, 0, now, tradingDay));
+      trades.push(this.#trade(order, position, remaining, price, ch, 0, now, tradingDay, 'open'));
     }
-
-    await Trade.insertMany(trades);
-    await adjustBalance(userId, pnlDelta - charges.total);
 
     order.status = 'FILLED';
     order.filledQty = qty;
     order.avgFillPrice = price;
     order.filledAt = now;
     order.blockedMargin = 0;
-    await order.save();
-    this.#removeFromBook(symbol, order._id);
+    const orderPlain = order.toObject();
+    delete orderPlain._id;
+    delete orderPlain.__v;
 
+    const cancels = [];
     if (EXIT_ROLES.includes(order.role) && order.ocoGroup) {
       for (const sib of await Order.find({ ocoGroup: order.ocoGroup, status: 'OPEN', _id: { $ne: order._id } })) {
-        await this.#cancel(sib, `${order.role === 'STOPLOSS' ? 'Stop-loss' : 'Target'} hit`);
+        cancels.push({ id: sib._id, at: now, reason: `${order.role === 'STOPLOSS' ? 'Stop-loss' : 'Target'} hit` });
       }
     }
-    const stillOpen = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
-    if (!stillOpen) {
+    const opened = positions.some((p) => p.set.status !== 'CLOSED');
+    if (!opened) {
       for (const leg of await Order.find({ user: userId, symbol, status: 'OPEN', role: { $in: EXIT_ROLES } })) {
-        await this.#cancel(leg, 'Position closed');
+        cancels.push({ id: leg._id, at: now, reason: 'Position closed' });
       }
-    } else if (order.role === 'ENTRY' && (order.stopLoss || order.target) && remaining > 0) {
-      await this.#createExitLegs(order, remaining, tradingDay);
+    }
+    const legs = [];
+    if (order.role === 'ENTRY' && remaining > 0 && opened && (order.stopLoss || order.target)) {
+      const exitSide = opposite(order.side);
+      const common = { user: userId, symbol, side: exitSide, qty: remaining, source: order.source, parentOrder: order._id, ocoGroup: String(order._id), tradingDay, segment };
+      if (order.stopLoss) legs.push({ ...common, orderType: 'SL_M', triggerPrice: order.stopLoss, role: 'STOPLOSS', status: 'OPEN', fillKey: `leg:${order._id}:STOPLOSS` });
+      if (order.target) legs.push({ ...common, orderType: 'LIMIT', price: order.target, role: 'TARGET', status: 'OPEN', fillKey: `leg:${order._id}:TARGET` });
     }
 
+    const plan = {
+      key,
+      userId,
+      walletDelta: round2(pnlDelta - charges.total),
+      positions,
+      trades: trades.map((t) => {
+        const plain = t.toObject();
+        delete plain._id;
+        delete plain.__v;
+        return plain;
+      }),
+      order: { id: order._id, set: orderPlain },
+      legs,
+      cancels,
+    };
+    await commitFill(plan, this.config.startingBalance);
+    this.#removeFromBook(symbol, order._id);
+    for (const cancel of cancels) this.#removeFromBook(symbol, cancel.id);
+    for (const leg of await Order.find({ fillKey: { $in: legs.map((l) => l.fillKey) } })) this.#addToBook(leg.toObject());
+
+    const savedTrades = await Trade.find({ fillKey: key });
     const label = order.role === 'STOPLOSS' ? 'Stop-loss hit' : order.role === 'TARGET' ? 'Target hit' : 'Order filled';
     this.emit('update', {
       userId: String(userId),
       kind: 'fill',
-      order: order.toJSON(),
-      trades: trades.map((t) => t.toJSON()),
+      order: (await Order.findById(order._id))?.toJSON() || order.toJSON(),
+      trades: savedTrades.map((t) => t.toJSON()),
       message: `${label}: ${side} ${qty} ${symbol} @ ₹${price.toFixed(2)}`,
     });
-    return { order, trades };
+    return { order: await Order.findById(order._id), trades: savedTrades };
   }
 
   async #createExitLegs(entry, qty, tradingDay) {
@@ -724,7 +805,7 @@ export class OrderEngine extends EventEmitter {
     this.emit('update', { userId: String(order.user), kind: 'order', order: order.toJSON() });
   }
 
-  #trade(order, position, qty, price, charges, pnl, now, tradingDay) {
+  #trade(order, position, qty, price, charges, pnl, now, tradingDay, part) {
     return new Trade({
       user: order.user,
       order: order._id,
@@ -738,6 +819,8 @@ export class OrderEngine extends EventEmitter {
       value: round2(qty * price),
       charges,
       realizedPnl: pnl,
+      fillKey: order.fillKey,
+      part,
       executedAt: now,
       tradingDay,
     });
@@ -760,6 +843,61 @@ export class OrderEngine extends EventEmitter {
   }
 
   // Shares are bought on intraday leverage; an option buyer pays the whole premium and nothing more can be lost.
+  async #freshQuote(symbol) {
+    const cached = this.market.getExecutableQuote?.(symbol);
+    if (cached) return cached;
+    if (typeof this.market.fetchFreshQuote === 'function') return this.market.fetchFreshQuote(symbol);
+    return null;
+  }
+
+  /** Manual and auto openings share the configured rupee stop, max open count, and daily loss percent. */
+  async #riskGate(userId, { segment, qty, price, stopLoss, source, symbol, side }) {
+    const opt = segment === 'OPT';
+    const rules = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment);
+    const perTrade = rules.stopLoss || 0;
+    const settings = opt ? await OptionSettings.findOne({ user: userId }).lean() : await AutoSettings.findOne({ user: userId }).lean();
+    const maxOpen = settings?.maxOpen ?? (opt ? 1 : 2);
+    const dailyLossPct = settings?.dailyLossPct ?? (opt ? 10 : 2);
+    const segFilter = opt ? { segment: 'OPT' } : { segment: { $ne: 'OPT' } };
+    const open = await Position.find({ user: userId, status: 'OPEN', ...segFilter }).lean();
+    let unrealisedLoss = 0;
+    let openRisk = 0;
+    // An order that closes the current position releases that stop-risk. Count only what stays open.
+    const closing = open.find((p) => p.symbol === symbol && Math.sign(p.netQty) !== sign(side));
+    for (const pos of open) {
+      const q = this.market.getExecutableQuote?.(pos.symbol);
+      if (!q) return { ok: false, message: `No fresh price for open ${pos.symbol}, so open loss cannot be measured. New entries are paused.` };
+      const pnl = (q.ltp - pos.avgPrice) * pos.netQty;
+      if (pnl < 0) unrealisedLoss += -pnl;
+      if (closing && pos.symbol === symbol) continue;
+      const sl = await Order.findOne({ user: userId, symbol: pos.symbol, status: 'OPEN', role: 'STOPLOSS' }).lean();
+      const dist = sl ? Math.abs(pos.avgPrice - sl.triggerPrice) : perTrade > 0 ? perTrade / Math.max(1, Math.abs(pos.netQty)) : 0;
+      openRisk += dist * Math.abs(pos.netQty) + roundTripCharges({ qty: Math.abs(pos.netQty), price: pos.avgPrice, segment });
+    }
+    const adding = open.some((p) => p.symbol === symbol);
+    const day = this.marketStatus().istDate;
+    const fills = await Trade.find({ user: userId, tradingDay: day, ...segFilter }).lean();
+    const dayRealised = fills.reduce((s, t) => s + (t.realizedPnl || 0) - (t.charges?.total || 0), 0);
+    const distance = stopLoss ? Math.abs(price - stopLoss) : fittedStopDistance({ perTradeRupees: perTrade, qty, price, segment });
+    if (distance === 0) return { ok: false, message: `Estimated charges exceed the ₹${perTrade} stop configured for this book.` };
+    const funds = await getFunds(userId, this.config.startingBalance);
+    return openingDecision({
+      qty,
+      price,
+      stopDistance: distance ?? 0,
+      perTradeRupees: perTrade,
+      segment,
+      openCount: adding ? Math.max(0, open.length - 1) : open.length,
+      maxOpen,
+      openRiskRupees: openRisk,
+      dayRealised,
+      unrealisedLoss,
+      dailyLossPct,
+      balance: funds.balance,
+      source,
+    });
+  }
+
   #marginFor(qty, price, segment = 'EQ') {
     return segment === 'OPT' ? qty * price : (qty * price) / this.config.misLeverage;
   }

@@ -239,7 +239,10 @@ export class AutoTrader {
     const userId = settings.user;
 
     // The idea was raised a moment ago; skip it if price has already run away from the entry.
-    const ltp = this.engine.market.getLtp(idea.symbol);
+    let quote = this.engine.market.getExecutableQuote?.(idea.symbol);
+    if (!quote && this.engine.market.fetchFreshQuote) quote = await this.engine.market.fetchFreshQuote(idea.symbol);
+    const ltp = quote?.ltp;
+    if (!quote) return { skipped: 'no fresh price from the feed' };
     const risk = Math.abs(idea.entry - idea.stopLoss);
     seen.ltp = ltp || undefined;
     if (ltp && risk) {
@@ -290,6 +293,7 @@ export class AutoTrader {
       qty,
       stopLoss: idea.stopLoss,
       source: 'AUTO',
+      clientOrderId: `auto:${userId}:${idea._id}`.slice(0, 80),
     });
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
     if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };

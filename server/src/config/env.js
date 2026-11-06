@@ -51,6 +51,8 @@ export const env = {
     apiBase: process.env.UPSTOX_API_BASE || 'https://api.upstox.com',
     // Optional JSON file mapping SYMBOL -> instrument_key (e.g. "RELIANCE": "NSE_EQ|INE002A01018").
     instrumentMapFile: process.env.UPSTOX_INSTRUMENT_MAP_FILE || '',
+    // Comma-separated account emails allowed to replace the process-wide market-data token. Empty denies everyone.
+    operatorEmails: (process.env.UPSTOX_OPERATOR_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   },
 };
 

@@ -71,6 +71,8 @@ test('short selling intraday works and profits when price falls', async () => {
 });
 
 test('rejects orders that exceed available margin', async () => {
+  // The rupee stop would reject this size first. Raise it so the margin check is what fails.
+  await api().put('/api/trade-defaults').set(user.auth).send({ shares: { stopLoss: 1500 } }).expect(200);
   // ₹6,00,000 of stock needs ₹1,20,000 margin at 5x.
   const res = await place({ symbol: 'RELIANCE', side: 'BUY', orderType: 'MARKET', qty: 600 }).expect(200);
   assert.equal(res.body.order.status, 'REJECTED');

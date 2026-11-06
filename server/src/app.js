@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -32,6 +34,15 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export const DISCLAIMER = 'Paper trading for learning. Not investment advice.';
 
+const require = createRequire(import.meta.url);
+function appVersion() {
+  try {
+    return JSON.parse(readFileSync(require.resolve('../package.json'), 'utf8')).version || null;
+  } catch {
+    return null;
+  }
+}
+
 export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), lab = new LabService({ market, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null }) {
   const app = express();
   app.disable('x-powered-by');
@@ -40,11 +51,21 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   // default content policy would block, so the policy is switched off only when this server also serves the app.
   app.use(helmet(config.clientDist ? { contentSecurityPolicy: false } : {}));
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
-  app.use(express.json({ limit: '50kb' }));
+  // inflate: false rejects compressed bodies before the body-parser decoder (GHSA-27r3-jxmh-p828). The app's own client sends plain JSON.
+  app.use(express.json({ limit: '50kb', inflate: false }));
   if (config.nodeEnv === 'development') app.use(morgan('dev'));
   app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: config.nodeEnv === 'test' ? 10000 : 300, standardHeaders: 'draft-7', legacyHeaders: false }));
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, startingBalance: config.startingBalance, disclaimer: DISCLAIMER }));
+  app.get('/api/health', (_req, res) => res.json({
+    ok: true,
+    paperOnly: true,
+    version: appVersion(),
+    // Set RELEASE_SHA to the deployed git commit. Null means this process was not given one.
+    releaseSha: process.env.RELEASE_SHA || null,
+    quotePolicy: 'fresh-upstream-timestamp',
+    startingBalance: config.startingBalance,
+    disclaimer: DISCLAIMER,
+  }));
   app.get('/api/market/status', (_req, res) => res.json({ ...market.status(), disclaimer: DISCLAIMER }));
 
   app.use('/api/auth', authRoutes(config));

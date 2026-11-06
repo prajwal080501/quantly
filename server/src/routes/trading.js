@@ -18,6 +18,7 @@ const orderSchema = z
     price,
     stopLoss: price,
     target: price,
+    clientOrderId: z.string().trim().min(1).max(80).optional(),
   })
   .refine((o) => o.orderType !== 'LIMIT' || o.price, { message: 'price is required for LIMIT orders', path: ['price'] });
 
@@ -70,7 +71,12 @@ export function tradingRoutes({ engine, market, config }) {
 
   router.post('/wallet/reset', async (req, res) => {
     await engine.resetAccount(req.userId);
-    res.json(await getFunds(req.userId, config.startingBalance));
+    const funds = await getFunds(req.userId, config.startingBalance);
+    res.json({
+      ...funds,
+      resetTo: config.startingBalance,
+      note: 'Paper orders, positions and trades were deleted. Balance and starting capital are the configured STARTING_BALANCE. A previous paper top-up is not kept.',
+    });
   });
 
   router.get('/orders', validate(listQuery, 'query'), async (req, res) => {
@@ -81,8 +87,8 @@ export function tradingRoutes({ engine, market, config }) {
   });
 
   router.post('/orders', validate(orderSchema), async (req, res) => {
-    const { order, trades } = await engine.placeOrder(req.userId, req.body);
-    res.status(order.status === 'REJECTED' ? 200 : 201).json({ order, trades });
+    const result = await engine.placeOrder(req.userId, req.body);
+    res.status(result.order.status === 'REJECTED' ? 200 : 201).json(result);
   });
 
   router.delete('/orders/:id', async (req, res) => {

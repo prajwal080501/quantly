@@ -16,6 +16,8 @@ import { NewsCard } from '../components/NewsCard.jsx';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { ExitsSheet } from '../components/ExitsSheet.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
+import { LivePrice } from '../components/LivePrice.jsx';
+import { quoteView } from '../lib/quoteFreshness.js';
 
 function Stat({ label, value }) {
   return (
@@ -87,7 +89,9 @@ export default function StockDetail() {
           <div className="truncate text-xs text-muted">{stock ? `${stock.name} · ${stock.sector}` : <Skeleton className="h-3 w-40" />}</div>
         </div>
         <div className="text-right">
-          {tick ? (
+          {tick && quoteView(tick).state !== 'fresh' ? (
+            <LivePrice tick={tick} className="text-right" />
+          ) : tick ? (
             <>
               <Flash value={tick.ltp} dir={tick.dir} className="num text-2xl font-bold">
                 ₹{formatPrice(tick.ltp)}

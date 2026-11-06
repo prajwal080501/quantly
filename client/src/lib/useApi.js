@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 
 /** Fetch `path` and refetch whenever any value in `deps` changes. */
@@ -8,10 +8,15 @@ export function useApi(path, deps = []) {
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
 
+  const pathRef = useRef(path);
   useEffect(() => {
     if (!path) return undefined;
+    const pathChanged = pathRef.current !== path;
+    pathRef.current = path;
+    if (pathChanged) setData(null);
     const ctrl = new AbortController();
-    setLoading((l) => l || data === null);
+    setLoading(true);
+    setError(null);
     api(path, { signal: ctrl.signal })
       .then((d) => {
         setData(d);

@@ -1,0 +1,33 @@
+{
+  "candidates": [
+    {
+      "setup": "Opening range breakout",
+      "side": "BUY",
+      "status": "ENTRY",
+      "entry": 1008.5,
+      "stopLoss": 1004,
+      "target1": 1016.35,
+      "target2": 1024.15,
+      "score": 84,
+      "riskReward": 1.74,
+      "blocked": []
+    },
+    {
+      "setup": "Level retest",
+      "side": "BUY",
+      "status": "ENTRY",
+      "entry": 1008.5,
+      "stopLoss": 1005.3,
+      "target1": 1014.9,
+      "target2": 1018.1,
+      "score": 84,
+      "riskReward": 2,
+      "blocked": []
+    }
+  ],
+  "indicators": {
+    "ema9Last": 1008.26,
+    "rsi14Last": 60.29
+  },
+  "barCount": 408
+}

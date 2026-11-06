@@ -31,6 +31,7 @@ const positionSchema = new mongoose.Schema(
     openedAt: { type: Date, default: Date.now },
     closedAt: { type: Date },
     tradingDay: { type: String, required: true },
+    fillOpenKey: { type: String },
   },
   { timestamps: true },
 );
