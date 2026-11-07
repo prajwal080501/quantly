@@ -28,8 +28,8 @@ test('session start returns a state-protected URL and rejects unsolicited callba
   app.use('/api/upstox', routes.api);
   app.use('/upstox', routes.callback);
 
-  const started = await request(app).post('/api/upstox/session').expect(200);
-  assert.ok(new URL(started.body.url).searchParams.get('state')?.length >= 32);
+  const started = await request(app).post('/api/upstox/session').expect(403);
+  assert.equal(started.body.error.code, 'OPERATOR_REQUIRED');
   await request(app).get('/upstox/callback?code=untrusted').expect(400);
 });
 

@@ -1,5 +1,7 @@
 export { User } from './User.js';
 export { Wallet } from './Wallet.js';
+export { CashPosting } from './CashPosting.js';
+export { FillLedger } from './FillLedger.js';
 export { Order } from './Order.js';
 export { Position } from './Position.js';
 export { Trade } from './Trade.js';

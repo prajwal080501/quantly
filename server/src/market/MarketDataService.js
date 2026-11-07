@@ -3,6 +3,7 @@ import { ALL_SYMBOLS, INDICES, NIFTY50 } from './instruments.js';
 import { getMarketStatus } from './marketHours.js';
 import { INTERVAL_SECONDS, aggregateCandles } from './providers/BaseProvider.js';
 import { istParts } from './marketHours.js';
+import { assessQuote, feedAuth, DEFAULT_MAX_AGE_MS } from './quoteFreshness.js';
 import { addDays, daysBetween } from './days.js';
 import { INDEXES, atmStrike, chooseExpiry, weeklyExpiries, parseOptionSymbol, isIndexKey } from '../options/symbols.js';
 
@@ -25,13 +26,24 @@ export class MarketDataService extends EventEmitter {
     this.enforceHours = enforceHours; // tells the app whether the order engine refuses orders outside market hours
     this.history = null; // the saved candle history (HistoryStore), set by HistorySync; studies and Review read it first
     this.latest = new Map();
+    this.lastStamp = new Map();
+    this.rejections = new Map();
     this.historyCache = new Map();
     this.feedStatus = { connected: false, message: 'Not started' };
     this.contracts = new Map(); // option symbol -> { symbol, strike, type, expiry, lotSize } for every contract picked so far
 
     provider.on('tick', (tick) => {
-      this.latest.set(tick.symbol, tick);
-      this.emit('tick', tick);
+      const verdict = assessQuote(tick, { allowMock: Boolean(this.provider.isSimulated), lastAcceptedTs: this.lastStamp.get(tick.symbol) });
+      const stored = { ...tick, freshness: verdict };
+      this.latest.set(tick.symbol, stored);
+      if (!verdict.ok) {
+        this.rejections.set(tick.symbol, verdict);
+        this.emit('quote-rejected', { symbol: tick.symbol, freshness: verdict });
+        return;
+      }
+      this.lastStamp.set(tick.symbol, verdict.ts);
+      this.rejections.delete(tick.symbol);
+      this.emit('tick', stored);
     });
     provider.on('status', (status) => {
       this.feedStatus = status;
@@ -56,6 +68,51 @@ export class MarketDataService extends EventEmitter {
     return this.latest.get(symbol)?.ltp ?? null;
   }
 
+  /** A quote that is fresh at this instant. A stored tick whose upstream time has aged out is not returned. */
+  getExecutableQuote(symbol) {
+    const tick = this.latest.get(symbol);
+    if (!tick) return null;
+    const verdict = assessQuote(tick, { allowMock: Boolean(this.provider.isSimulated) });
+    return verdict.ok ? { ...tick, freshness: verdict } : null;
+  }
+
+  /**
+   * Ask the configured provider for a new quote. Never substitutes the last cached price or the mock feed.
+   * Returns null when the provider is down, unauthenticated, or the upstream timestamp is not fresh.
+   */
+  async fetchFreshQuote(symbol) {
+    if (typeof this.provider.fetchQuote !== 'function') return null;
+    let tick;
+    try {
+      tick = await this.provider.fetchQuote(symbol);
+    } catch (err) {
+      const freshness = { ok: false, code: 'FEED_ERROR', message: err.message || 'Quote request failed.' };
+      this.rejections.set(symbol, freshness);
+      this.emit('quote-rejected', { symbol, freshness });
+      return null;
+    }
+    if (!tick) return null;
+    const verdict = assessQuote(tick, { allowMock: Boolean(this.provider.isSimulated), lastAcceptedTs: this.lastStamp.get(symbol) });
+    const stored = { ...tick, freshness: verdict };
+    this.latest.set(symbol, stored);
+    if (!verdict.ok) {
+      this.rejections.set(symbol, verdict);
+      this.emit('quote-rejected', { symbol, freshness: verdict });
+      return null;
+    }
+    this.lastStamp.set(symbol, verdict.ts);
+    this.rejections.delete(symbol);
+    this.emit('tick', stored);
+    return stored;
+  }
+
+  quoteProblem(symbol) {
+    const tick = this.latest.get(symbol);
+    if (!tick) return this.rejections.get(symbol) || { ok: false, code: 'NO_PRICE', message: 'No price from the feed.' };
+    const verdict = assessQuote(tick, { allowMock: Boolean(this.provider.isSimulated) });
+    return verdict.ok ? null : verdict;
+  }
+
   snapshot() {
     return {
       stocks: NIFTY50.map((s) => ({ ...s, seed: undefined, tick: this.latest.get(s.symbol) || null })),
@@ -65,14 +122,23 @@ export class MarketDataService extends EventEmitter {
 
   status(now = new Date()) {
     return {
-      market: { ...getMarketStatus(now, this.holidays), enforced: this.enforceHours },
+      market: {
+        ...getMarketStatus(now, this.holidays),
+        enforced: this.enforceHours,
+        holidayCalendar: this.holidays.length ? 'configured' : 'unconfigured',
+        holidayWarning: this.holidays.length
+          ? null
+          : 'NSE_HOLIDAYS is empty. Weekends are closed. A weekday exchange holiday is not detected until those dates are set from the NSE holiday circular.',
+      },
       feed: {
         provider: this.provider.name,
         simulated: this.provider.isSimulated,
         connected: this.feedStatus.connected,
         message: this.feedStatus.message,
+        auth: feedAuth(this.feedStatus.message, this.feedStatus.connected),
         capabilities: this.provider.capabilities,
       },
+      quotes: { policy: 'fresh-upstream-timestamp', maxAgeMs: DEFAULT_MAX_AGE_MS },
     };
   }
 
@@ -92,7 +158,7 @@ export class MarketDataService extends EventEmitter {
    */
   async pickOption({ type, now = new Date(), minDays = 1, index = 'NIFTY' }) {
     const idx = INDEXES[index] ?? INDEXES.NIFTY;
-    const spot = this.getLtp(idx.symbol);
+    const spot = this.getExecutableQuote(idx.symbol)?.ltp;
     if (!spot) return null;
     const listed = await this.provider.getOptionExpiries(idx.key);
     const expiries = listed.length ? listed : weeklyExpiries(now, { holidays: this.holidays, weekday: this.weekdayOf(idx.key) });
@@ -111,12 +177,12 @@ export class MarketDataService extends EventEmitter {
   /** The price of a symbol just subscribed to: its first tick comes a moment after the subscription, so wait for it (up to `ms`) instead of reading nothing. */
   async #priceOf(symbol, ms = 1500) {
     const end = Date.now() + ms;
-    let ltp = this.getLtp(symbol);
-    while (!ltp && Date.now() < end) {
+    let quote = this.getExecutableQuote(symbol);
+    while (!quote && Date.now() < end) {
       await new Promise((resolve) => setTimeout(resolve, 100));
-      ltp = this.getLtp(symbol);
+      quote = this.getExecutableQuote(symbol);
     }
-    return ltp;
+    return quote?.ltp ?? null;
   }
 
   /** Start streaming a contract (e.g. one that is already held after a restart). */

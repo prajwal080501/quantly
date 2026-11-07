@@ -10,6 +10,7 @@ import { OrderSheet } from '../components/OrderSheet.jsx';
 import { StockInsightSheet } from '../components/StockInsightSheet.jsx';
 import { TodayStrip } from '../components/TodayStrip.jsx';
 import { Badge, Card, Skeleton, EmptyState } from '../components/ui.jsx';
+import { LivePrice } from '../components/LivePrice.jsx';
 
 const COLUMNS = [
   { key: 'symbol', label: 'Stock', asc: true },
@@ -77,7 +78,7 @@ const Row = memo(function Row({ stock, starred, onStar, onOpen, news }) {
           </div>
         </div>
       </td>
-      <td className="num font-semibold">{formatPrice(t?.ltp)}</td>
+      <td className="num font-semibold"><LivePrice tick={t} compact /></td>
       <td className="num font-semibold">{t ? pctCell(t.changePct) : <Skeleton className="ml-auto h-4 w-12" />}</td>
       <td>
         <RangeBar pos={i?.rangePos} />

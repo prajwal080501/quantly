@@ -129,7 +129,7 @@ test('your stop and profit lock apply to every new position: a fixed rupee stop,
 
   await buy({ qty: 100 }).expect(201);
   const e = (await exits({}).expect(200)).body;
-  assert.equal(e.stopLoss, 998, 'a manual order without a stop gets one that loses 200 rupees: 2 a share on 100 shares');
+  assert.ok(e.stopLoss > 998 && e.stopLoss < 1000, `stop ${e.stopLoss} is inside the ₹200 cap after estimated charges, not a flat ₹2 away`);
   assert.equal(e.lockTrigger, 250);
   assert.equal(e.lockAmount, 200);
 
@@ -144,8 +144,8 @@ test('your stop and profit lock apply to every new position: a fixed rupee stop,
   // an order that brings its own stop keeps it, and a stop of 0 switches the automatic stop off
   ctx.provider.setPrice('RELIANCE', 1000);
   await settle();
-  await buy({ qty: 100, stopLoss: 990 }).expect(201);
-  assert.equal((await exits({}).expect(200)).body.stopLoss, 990);
+  await buy({ qty: 100, stopLoss: 999 }).expect(201);
+  assert.equal((await exits({}).expect(200)).body.stopLoss, 999, 'a stop inside the configured rupee cap is kept');
   await api().post('/api/positions/RELIANCE/exit').set(user.auth).expect(200);
   await api().put('/api/trade-defaults').set(user.auth).send({ shares: { stopLoss: 0, lockStart: 0 } }).expect(200);
   await buy({ qty: 100 }).expect(201);

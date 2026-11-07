@@ -1,12 +1,13 @@
 import mongoose from 'mongoose';
-import { Wallet, Order, Position, Trade } from '../models/index.js';
+import { Wallet, Order, Position, Trade, CashPosting, FillLedger } from '../models/index.js';
 import { round2 } from '../utils/money.js';
+import { repairBalance } from './fillLedger.js';
 
 export async function getOrCreateWallet(userId, startingBalance) {
   return Wallet.findOneAndUpdate(
     { user: userId },
     { $setOnInsert: { balance: startingBalance, startingBalance } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: 'after' },
   );
 }
 
@@ -14,7 +15,7 @@ export async function getOrCreateWallet(userId, startingBalance) {
 export async function getFunds(userId, startingBalance) {
   const uid = new mongoose.Types.ObjectId(String(userId));
   const [wallet, [pos], [ord]] = await Promise.all([
-    getOrCreateWallet(uid, startingBalance),
+    repairBalance(uid, startingBalance),
     Position.aggregate([{ $match: { user: uid, status: 'OPEN' } }, { $group: { _id: null, margin: { $sum: '$margin' } } }]),
     Order.aggregate([{ $match: { user: uid, status: 'OPEN' } }, { $group: { _id: null, blocked: { $sum: '$blockedMargin' } } }]),
   ]);
@@ -42,16 +43,18 @@ export async function adjustBalance(userId, delta) {
   await Wallet.updateOne({ user: userId }, { $inc: { balance: round2(delta) } });
 }
 
-/** Start over: wipe orders, positions and trades and restore the starting balance. */
+/** Start over: wipe orders, positions, trades and cash postings, and restore the configured starting balance. */
 export async function resetAccount(userId, startingBalance) {
   await Promise.all([
     Order.deleteMany({ user: userId }),
     Position.deleteMany({ user: userId }),
     Trade.deleteMany({ user: userId }),
+    CashPosting.deleteMany({ user: userId }),
+    FillLedger.deleteMany({ user: userId }),
   ]);
   await Wallet.updateOne(
     { user: userId },
-    { $set: { balance: startingBalance, startingBalance, lastResetAt: new Date() }, $inc: { resetCount: 1 } },
+    { $set: { balance: startingBalance, startingBalance, lastResetAt: new Date(), ledgerAdopted: false }, $inc: { resetCount: 1 } },
     { upsert: true },
   );
 }

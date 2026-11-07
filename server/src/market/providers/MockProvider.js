@@ -115,6 +115,14 @@ export class MockProvider extends BaseProvider {
     if (key) this.#emitOptions(key, s.ltp);
   }
 
+  /** Current simulated quote. Only the mock provider may do this, and the engine still checks `source`. */
+  async fetchQuote(symbol) {
+    const o = this.optionState.get(symbol);
+    if (o) return this.#optionTick(symbol, o);
+    const s = this.state.get(symbol);
+    return s ? this.#tick(s) : null;
+  }
+
   getLastTick(symbol) {
     const o = this.optionState.get(symbol);
     if (o) return this.#optionTick(symbol, o);

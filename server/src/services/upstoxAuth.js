@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 
 // Upstox OAuth: the login dialog redirects back with ?code=..., which is exchanged for an
 // access token valid until about 03:30 IST the next day.
@@ -33,5 +33,7 @@ export async function setEnvValue(file, key, value) {
   const line = `${key}=${value}`;
   const re = new RegExp(`^${key}=.*$`, 'm');
   text = re.test(text) ? text.replace(re, line) : `${text.trimEnd()}\n${line}\n`;
-  await writeFile(file, text);
+  // Mode is set by this process. The previous mode of an existing deployment file is not known here.
+  await writeFile(file, text, { mode: 0o600 });
+  await chmod(file, 0o600);
 }
